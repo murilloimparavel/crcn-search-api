@@ -95,6 +95,7 @@ app.post('/api/v1/cache/clear', (req, res) => {
 
 // Endpoint principal de pesquisa
 app.get('/api/v1/search', async (req, res) => {
+  console.log('[API Incoming Request]', req.method, req.url, 'Query:', JSON.stringify(req.query));
   const { from, to, persons = 2, max_results = 10 } = req.query;
 
   // 1. Validação de presença
