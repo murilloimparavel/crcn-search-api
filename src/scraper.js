@@ -43,7 +43,7 @@ async function scrapeCRCN(from, to, persons = 2) {
     await page.setViewport({ width: 1280, height: 800 });
     await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
-    // Bloquear apenas mídias e analytics pesados para não quebrar scripts da Stays
+    // Abortar imagens e analytics
     await page.setRequestInterception(true);
     page.on('request', (req) => {
       const resourceType = req.resourceType();
@@ -66,7 +66,7 @@ async function scrapeCRCN(from, to, persons = 2) {
     console.log(`[Scraper] Buscando: ${searchUrl}`);
 
     await page.goto(searchUrl, {
-      waitUntil: 'networkidle2',
+      waitUntil: 'domcontentloaded',
       timeout: 30000
     });
 
@@ -74,20 +74,20 @@ async function scrapeCRCN(from, to, persons = 2) {
     try {
       await page.waitForFunction(
         () => {
-          const text = document.body.innerText || '';
-          return text.includes('por noite') || text.includes('Nenhum imóvel disponível') || text.includes('Imóveis disponíveis');
+          const links = document.querySelectorAll('a[href*="/apartment/"]');
+          const bodyText = document.body ? document.body.innerText : '';
+          return (links.length > 0 && bodyText.includes('R$')) || bodyText.includes('Nenhum imóvel disponível');
         },
-        { timeout: 10000 }
+        { timeout: 15000 }
       );
     } catch (waitErr) {
       console.warn('[Scraper] Timeout aguardando renderização completa, extraindo dados disponíveis...');
     }
 
-    // Pequena pausa para garantir que o DOM finalizou as mutações do jQuery/RequireJS
-    await new Promise(r => setTimeout(r, 1500));
+    // Pausa breve para renderização final dos nós
+    await new Promise(r => setTimeout(r, 2000));
 
     const rawApartments = await page.evaluate(() => {
-      // Buscar todos os links de apartamentos
       const links = Array.from(document.querySelectorAll('a[href*="/apartment/"]'));
       const seen = new Set();
       const results = [];
@@ -96,7 +96,7 @@ async function scrapeCRCN(from, to, persons = 2) {
         const href = link.href;
         if (!href || seen.has(href)) continue;
 
-        // Pegar o container do card
+        // Container do card
         const card = link.closest('.appThumb, .col-xs-12, .col-sm-6, .col-md-4, [class*="col-"]');
         const text = card ? card.innerText : link.innerText;
 
