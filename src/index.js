@@ -11,15 +11,48 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-// Validador estrito de data YYYY-MM-DD
+// Validador e normalizador flexível de datas
 function parseAndValidateDate(dateStr) {
   if (!dateStr || typeof dateStr !== 'string') return null;
-  const match = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match) return null;
+  const cleanStr = dateStr.trim();
 
-  const year = parseInt(match[1], 10);
-  const month = parseInt(match[2], 10);
-  const day = parseInt(match[3], 10);
+  let year, month, day;
+
+  // 1. Formato ISO: YYYY-MM-DD ou YYYY/MM/DD
+  const isoMatch = cleanStr.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+  if (isoMatch) {
+    year = parseInt(isoMatch[1], 10);
+    const p2 = parseInt(isoMatch[2], 10);
+    const p3 = parseInt(isoMatch[3], 10);
+
+    // Se p2 > 12 e p3 <= 12, foram passados invertidos (YYYY-DD-MM)
+    if (p2 > 12 && p3 <= 12) {
+      day = p2;
+      month = p3;
+    } else {
+      month = p2;
+      day = p3;
+    }
+  } else {
+    // 2. Formato Brasileiro: DD/MM/YYYY ou DD-MM-YYYY ou DD.MM.YYYY
+    const brMatch = cleanStr.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
+    if (brMatch) {
+      day = parseInt(brMatch[1], 10);
+      month = parseInt(brMatch[2], 10);
+      year = parseInt(brMatch[3], 10);
+    } else {
+      // 3. Formato sem ano: DD/MM ou DD-MM
+      const shortMatch = cleanStr.match(/^(\d{1,2})[-/.](\d{1,2})$/);
+      if (shortMatch) {
+        day = parseInt(shortMatch[1], 10);
+        month = parseInt(shortMatch[2], 10);
+        const currentYear = new Date().getFullYear();
+        year = currentYear;
+      } else {
+        return null;
+      }
+    }
+  }
 
   if (month < 1 || month > 12) return null;
   if (day < 1 || day > 31) return null;
@@ -33,7 +66,9 @@ function parseAndValidateDate(dateStr) {
     return null;
   }
 
-  return { year, month, day, dateObj, str: dateStr };
+  // Formato canônico YYYY-MM-DD
+  const formattedStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  return { year, month, day, dateObj, str: formattedStr };
 }
 
 // Obter hoje 00:00:00 UTC
