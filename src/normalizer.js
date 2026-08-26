@@ -27,17 +27,25 @@ function getDiferenciais(condominio) {
 }
 
 /**
+ * Sanitiza strings e remove quebras de linha/espaços excessivos
+ */
+function cleanString(str) {
+  if (!str) return '';
+  return str.replace(/\s+/g, ' ').trim();
+}
+
+/**
  * Normaliza e enriquece os dados brutos extraídos do site da CRCN
  */
 function normalizeApartment(raw, from, to, nights, persons) {
   const text = raw.text || '';
   
   // Extrair nome
-  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  const lines = text.split('\n').map(l => cleanString(l)).filter(Boolean);
   const nome = lines[0] || 'Apartamento em Caldas Novas';
   
-  // Extrair condomínio (parte antes do hífen)
-  const condominio = nome.split('-')[0].trim();
+  // Extrair condomínio
+  const condominio = cleanString(nome.split('-')[0]);
   
   // Extrair quartos
   const quartosMatch = text.match(/(\d+)\s*Quarto/i);
@@ -49,7 +57,8 @@ function normalizeApartment(raw, from, to, nights, persons) {
   
   // Extrair capacidade de hóspedes
   const hospedesMatch = text.match(/(\d+)\s*H[oó]spede/i);
-  const capacidade = hospedesMatch ? parseInt(hospedesMatch[1], 10) : (persons || 2);
+  const safePersons = Number.isInteger(persons) && persons > 0 ? persons : 2;
+  const capacidade = hospedesMatch ? parseInt(hospedesMatch[1], 10) : safePersons;
   
   // Extrair valor da diária
   let valorDiaria = 0;
@@ -59,7 +68,8 @@ function normalizeApartment(raw, from, to, nights, persons) {
     valorDiaria = parseFloat(rawPrice) || 0;
   }
   
-  const valorTotal = parseFloat((valorDiaria * (nights || 1)).toFixed(2));
+  const safeNights = Number.isInteger(nights) && nights > 0 ? nights : 1;
+  const valorTotal = parseFloat((valorDiaria * safeNights).toFixed(2));
   const diferenciais = getDiferenciais(condominio);
   
   return {
@@ -73,7 +83,7 @@ function normalizeApartment(raw, from, to, nights, persons) {
     valor_diaria: valorDiaria,
     valor_total: valorTotal,
     diferenciais,
-    link_reserva: raw.link || `https://www.centraldereservascaldas.com.br/pt/search?from=${from}&to=${to}&persons=${persons}`
+    link_reserva: raw.link || `https://www.centraldereservascaldas.com.br/pt/search?from=${from}&to=${to}&persons=${safePersons}`
   };
 }
 

@@ -1,37 +1,72 @@
 const { LRUCache } = require('lru-cache');
 
 const options = {
-  // Max 500 cached search queries
-  max: 500,
-  // 10 minutes TTL
-  ttl: 1000 * 60 * 10,
+  max: 500, // Máximo de 500 buscas cacheadas
+  ttl: 1000 * 60 * 10, // 10 minutos de validade por cotação
   allowStale: false,
-  updateAgeOnGet: false,
-  updateAgeOnHas: false,
+  updateAgeOnGet: true
 };
 
 const searchCache = new LRUCache(options);
+const inFlightRequests = new Map();
 
-function getCacheKey(from, to, persons) {
+function buildKey(from, to, persons) {
   return `${from}_${to}_${persons}`;
 }
 
 function getCachedSearch(from, to, persons) {
-  const key = getCacheKey(from, to, persons);
+  const key = buildKey(from, to, persons);
   return searchCache.get(key);
 }
 
 function setCachedSearch(from, to, persons, data) {
-  const key = getCacheKey(from, to, persons);
+  const key = buildKey(from, to, persons);
   searchCache.set(key, data);
 }
 
 function clearCache() {
   searchCache.clear();
+  inFlightRequests.clear();
+}
+
+/**
+ * Deduplica requisições simultâneas idênticas (Prevenção de Cache Stampede)
+ */
+async function fetchWithDeduplication(from, to, persons, fetchFn) {
+  const key = buildKey(from, to, persons);
+  
+  // 1. Se já está no cache, retorna imediatamente
+  const cached = searchCache.get(key);
+  if (cached) {
+    return { data: cached, isHit: true };
+  }
+
+  // 2. Se já existe uma requisição em voo para os mesmos parâmetros, aguarda ela
+  if (inFlightRequests.has(key)) {
+    console.log(`[Cache] Aguardando requisição em voo para ${key}`);
+    const data = await inFlightRequests.get(key);
+    return { data, isHit: true };
+  }
+
+  // 3. Primeira requisição: cria e registra a Promise
+  const promise = (async () => {
+    try {
+      const result = await fetchFn();
+      searchCache.set(key, result);
+      return result;
+    } finally {
+      inFlightRequests.delete(key);
+    }
+  })();
+
+  inFlightRequests.set(key, promise);
+  const data = await promise;
+  return { data, isHit: false };
 }
 
 module.exports = {
   getCachedSearch,
   setCachedSearch,
   clearCache,
+  fetchWithDeduplication
 };
