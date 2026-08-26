@@ -1,0 +1,84 @@
+/**
+ * Normaliza e enriquece os dados brutos extraídos do site da CRCN
+ */
+function normalizeApartment(raw, from, to, nights, persons) {
+  const text = raw.text || '';
+  
+  // Extrair nome
+  // Formato típico: "Evian Thermas - Apto B 503\n Caldas Novas  3 Quartos..."
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  const nome = lines[0] || 'Apartamento em Caldas Novas';
+  
+  // Extrair condomínio (parte antes do hífen)
+  const condominio = nome.split('-')[0].trim();
+  
+  // Extrair quartos
+  const quartosMatch = text.match(/(\d+)\s*Quarto/i);
+  const quartos = quartosMatch ? parseInt(quartosMatch[1], 10) : 1;
+  
+  // Extrair banheiros
+  const banheirosMatch = text.match(/(\d+)\s*Banheiro/i);
+  const banheiros = banheirosMatch ? parseInt(banheirosMatch[1], 10) : 1;
+  
+  // Extrair capacidade de hóspedes
+  const hospedesMatch = text.match(/(\d+)\s*H[oó]spede/i);
+  const capacidade = hospedesMatch ? parseInt(hospedesMatch[1], 10) : (persons || 2);
+  
+  // Extrair valor da diária (ex: "R$ 182,50 por noite" ou "R$ 312,50")
+  let valorDiaria = 0;
+  const precoMatch = text.match(/R\$\s*([\d\.,]+)/i);
+  if (precoMatch) {
+    const rawPrice = precoMatch[1].replace(/\./g, '').replace(',', '.');
+    valorDiaria = parseFloat(rawPrice) || 0;
+  }
+  
+  const valorTotal = parseFloat((valorDiaria * (nights || 1)).toFixed(2));
+  
+  return {
+    id: raw.id || null,
+    nome,
+    condominio,
+    cidade: 'Caldas Novas',
+    quartos,
+    banheiros,
+    capacidade,
+    valor_diaria: valorDiaria,
+    valor_total: valorTotal,
+    link_reserva: raw.link || `https://www.centraldereservascaldas.com.br/pt/search?from=${from}&to=${to}&persons=${persons}`
+  };
+}
+
+/**
+ * Categoriza e ordena os resultados para facilitar a escolha da LLM
+ */
+function processAndRankResults(apartments, from, to, nights, persons) {
+  const normalized = apartments.map(a => normalizeApartment(a, from, to, nights, persons));
+  
+  // Ordenar por preço (mais econômico primeiro)
+  normalized.sort((a, b) => a.valor_diaria - b.valor_diaria);
+  
+  if (normalized.length === 0) {
+    return [];
+  }
+  
+  // Marcar categorias recomendadas
+  const count = normalized.length;
+  normalized.forEach((item, index) => {
+    if (index === 0) {
+      item.tag_sugerida = 'Mais Econômica';
+    } else if (index === Math.floor(count / 2)) {
+      item.tag_sugerida = 'Melhor Custo-Benefício';
+    } else if (index === count - 1 || item.quartos >= 3) {
+      item.tag_sugerida = 'Mais Completa / Alto Padrão';
+    } else {
+      item.tag_sugerida = 'Opção Disponível';
+    }
+  });
+  
+  return normalized;
+}
+
+module.exports = {
+  normalizeApartment,
+  processAndRankResults
+};

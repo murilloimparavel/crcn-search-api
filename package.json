@@ -1,0 +1,27 @@
+{
+  "name": "crcn-search-api",
+  "version": "1.0.0",
+  "description": "Micro-API de busca ao vivo de disponibilidade e tarifas na Central de Reservas Caldas Novas (CRCN)",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "test": "node test/test_scraper.js"
+  },
+  "keywords": [
+    "crcn",
+    "stays",
+    "scraper",
+    "caldas-novas",
+    "evocrm"
+  ],
+  "author": "Murillo Alves",
+  "license": "MIT",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "lru-cache": "^10.4.3",
+    "puppeteer": "^23.11.1"
+  }
+}
