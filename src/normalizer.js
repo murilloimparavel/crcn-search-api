@@ -1,11 +1,38 @@
 /**
+ * Dicionário de diferenciais dos condomínios mais populares de Caldas Novas
+ */
+const CONDOMINIO_EXTRAS = {
+  'evian': 'Resort de luxo, complexo aquático completo com águas termais, cinema, salão de jogos, academia e alta gastronomia.',
+  'golden': 'Parque aquático completo com múltiplas piscinas termais, toboáguas, sauna, recreação infantil e lanchonetes.',
+  'boulevard': 'Excelente localização central, parque aquático termal com cascatas, hidromassagem, toboáguas e bar molhado.',
+  'thermas place': 'Piscinas termais 24h, sauna, excelente custo-benefício e localização privilegiada próxima ao centro.',
+  'lagoa': 'Estrutura moderna, ambiente familiar com ampla área verde e proximidade com o Lagoa Termas Parque.',
+  'amethist': 'Ótima localização central, piscinas termais, sauna e fácil acesso aos melhores restaurantes e comércio.',
+  'recanto do bosque': 'Ambiente tranquilo, familiar e arborizado com piscinas termais e sauna.',
+  'eldorado': 'Complexo de lazer termal, toboáguas, saunas, quadras e parque aquático para todas as idades.',
+  'aquarius': 'Piscinas de águas termais, lanchonete, recepção 24h e ambiente familiar acolhedor.',
+  'piazza': 'Design moderno e sofisticado, piscinas termais com borda infinita, hidromassagem e arquitetura italiana.',
+  'diroma': 'Acesso a um dos maiores complexos termais, toboáguas gigantes e ampla infraestrutura de lazer.',
+  'rio das pedras': 'Ambiente aconchegante com águas termais naturais, tranquilidade e área verde.'
+};
+
+function getDiferenciais(condominio) {
+  const lower = (condominio || '').toLowerCase();
+  for (const [key, desc] of Object.entries(CONDOMINIO_EXTRAS)) {
+    if (lower.includes(key)) {
+      return desc;
+    }
+  }
+  return 'Parque aquático com piscinas de águas termais naturais, sauna e estrutura de lazer completa.';
+}
+
+/**
  * Normaliza e enriquece os dados brutos extraídos do site da CRCN
  */
 function normalizeApartment(raw, from, to, nights, persons) {
   const text = raw.text || '';
   
   // Extrair nome
-  // Formato típico: "Evian Thermas - Apto B 503\n Caldas Novas  3 Quartos..."
   const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
   const nome = lines[0] || 'Apartamento em Caldas Novas';
   
@@ -24,7 +51,7 @@ function normalizeApartment(raw, from, to, nights, persons) {
   const hospedesMatch = text.match(/(\d+)\s*H[oó]spede/i);
   const capacidade = hospedesMatch ? parseInt(hospedesMatch[1], 10) : (persons || 2);
   
-  // Extrair valor da diária (ex: "R$ 182,50 por noite" ou "R$ 312,50")
+  // Extrair valor da diária
   let valorDiaria = 0;
   const precoMatch = text.match(/R\$\s*([\d\.,]+)/i);
   if (precoMatch) {
@@ -33,6 +60,7 @@ function normalizeApartment(raw, from, to, nights, persons) {
   }
   
   const valorTotal = parseFloat((valorDiaria * (nights || 1)).toFixed(2));
+  const diferenciais = getDiferenciais(condominio);
   
   return {
     id: raw.id || null,
@@ -44,6 +72,7 @@ function normalizeApartment(raw, from, to, nights, persons) {
     capacidade,
     valor_diaria: valorDiaria,
     valor_total: valorTotal,
+    diferenciais,
     link_reserva: raw.link || `https://www.centraldereservascaldas.com.br/pt/search?from=${from}&to=${to}&persons=${persons}`
   };
 }
