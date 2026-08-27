@@ -3,6 +3,8 @@ const fs = require('fs');
 
 let browserInstance = null;
 const MAX_CONCURRENT_PAGES = 4;
+const NAVIGATION_TIMEOUT_MS = Number(process.env.SCRAPER_NAVIGATION_TIMEOUT_MS || 18000);
+const RENDER_TIMEOUT_MS = Number(process.env.SCRAPER_RENDER_TIMEOUT_MS || 8000);
 let activePages = 0;
 const queue = [];
 
@@ -54,10 +56,14 @@ async function getBrowser() {
   }
 
   browserInstance = await puppeteer.launch(launchOptions);
+  browserInstance.once('disconnected', () => {
+    console.warn('[Scraper] Chromium desconectou; uma nova instância será criada na próxima busca.');
+    browserInstance = null;
+  });
   return browserInstance;
 }
 
-async function scrapeCRCN(from, to, persons = 2) {
+async function scrapeOnce(from, to, persons = 2) {
   await acquireSlot();
   let page = null;
 
@@ -92,7 +98,7 @@ async function scrapeCRCN(from, to, persons = 2) {
 
     await page.goto(searchUrl, {
       waitUntil: 'domcontentloaded',
-      timeout: 30000
+      timeout: NAVIGATION_TIMEOUT_MS
     });
 
     // Aguardar renderização dos links ou mensagem de indisponibilidade
@@ -103,13 +109,11 @@ async function scrapeCRCN(from, to, persons = 2) {
           const bodyText = document.body ? document.body.innerText : '';
           return (links.length > 0 && bodyText.includes('R$')) || bodyText.includes('Nenhum imóvel disponível');
         },
-        { timeout: 15000 }
+        { timeout: RENDER_TIMEOUT_MS }
       );
     } catch (waitErr) {
       console.warn('[Scraper] Timeout aguardando renderização completa, extraindo dados disponíveis...');
     }
-
-    await new Promise(r => setTimeout(r, 2000));
 
     const rawApartments = await page.evaluate(() => {
       const links = Array.from(document.querySelectorAll('a[href*="/apartment/"]'));
@@ -146,12 +150,26 @@ async function scrapeCRCN(from, to, persons = 2) {
   }
 }
 
-process.on('exit', async () => {
-  if (browserInstance) {
-    await browserInstance.close().catch(() => {});
+async function scrapeCRCN(from, to, persons = 2) {
+  try {
+    return await scrapeOnce(from, to, persons);
+  } catch (error) {
+    const shouldRetry = /Target closed|Session closed|browser has disconnected/i.test(error.message);
+    if (shouldRetry) {
+      console.warn('[Scraper] Falha transitória do Chromium; repetindo a busca uma única vez.');
+      browserInstance = null;
+      return scrapeOnce(from, to, persons);
+    }
+    if (/timeout/i.test(error.message)) error.code = 'SCRAPER_TIMEOUT';
+    throw error;
   }
-});
+}
+
+async function closeBrowser() {
+  if (browserInstance) await browserInstance.close().catch(() => {});
+}
 
 module.exports = {
-  scrapeCRCN
+  scrapeCRCN,
+  closeBrowser
 };

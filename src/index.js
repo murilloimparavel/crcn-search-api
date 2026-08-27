@@ -1,14 +1,24 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const { scrapeCRCN } = require('./scraper');
+const { scrapeCRCN, closeBrowser } = require('./scraper');
 const { processAndRankResults } = require('./normalizer');
 const { fetchWithDeduplication, clearCache } = require('./cache');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const isProduction = process.env.NODE_ENV === 'production';
+const allowedOrigins = (process.env.CORS_ORIGINS || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 
-app.use(cors());
+app.use(cors({
+  origin(origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    return callback(new Error('Origem não permitida por CORS.'));
+  }
+}));
 app.use(express.json());
 
 // Validador e normalizador flexível de datas
@@ -89,6 +99,13 @@ app.get('/health', (req, res) => {
 
 // Limpar cache manual
 app.post('/api/v1/cache/clear', (req, res) => {
+  const token = process.env.CACHE_CLEAR_TOKEN;
+  if (isProduction && !token) {
+    return res.status(503).json({ sucesso: false, erro: 'Limpeza manual de cache não configurada.' });
+  }
+  if (token && req.get('x-cache-clear-token') !== token) {
+    return res.status(401).json({ sucesso: false, erro: 'Não autorizado.' });
+  }
   clearCache();
   res.json({ success: true, message: 'Cache de pesquisas limpo com sucesso.' });
 });
@@ -197,14 +214,28 @@ app.get('/api/v1/search', async (req, res) => {
     console.error('[API Error]', error);
     res.status(500).json({
       sucesso: false,
-      erro: 'Falha ao consultar disponibilidade na Central de Reservas Caldas.',
-      detalhes: error.message
+      erro: error.code === 'SCRAPER_TIMEOUT'
+        ? 'A consulta de disponibilidade excedeu o tempo limite. Tente novamente em instantes.'
+        : 'Falha ao consultar disponibilidade na Central de Reservas Caldas.',
+      ...(isProduction ? {} : { detalhes: error.message })
     });
   }
 });
 
-app.listen(PORT, '0.0.0.0', () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`[crcn-search-api] Servidor rodando na porta ${PORT}`);
   console.log(`[crcn-search-api] Healthcheck: http://0.0.0.0:${PORT}/health`);
   console.log(`[crcn-search-api] Busca: http://0.0.0.0:${PORT}/api/v1/search?from=YYYY-MM-DD&to=YYYY-MM-DD&persons=2`);
 });
+
+function shutdown(signal) {
+  console.log(`[crcn-search-api] ${signal} recebido; encerrando HTTP server.`);
+  server.close(async () => {
+    await closeBrowser();
+    process.exit(0);
+  });
+  setTimeout(() => process.exit(1), 10_000).unref();
+}
+
+process.once('SIGTERM', () => shutdown('SIGTERM'));
+process.once('SIGINT', () => shutdown('SIGINT'));
