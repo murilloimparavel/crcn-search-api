@@ -8,6 +8,8 @@ A API usa o mesmo fluxo HTTP público do frontend Stays: cria uma sessão anôni
 
 O resultado é uma consulta atual, sujeita à confirmação no link de reserva. A API mantém cache por três minutos para reduzir chamadas repetidas.
 
+Variáveis opcionais: `STAYS_REQUEST_TIMEOUT_MS` (padrão 12000) e `STAYS_PRICE_CONCURRENCY` (padrão 3).
+
 ## Endpoints
 
 ### 1. Healthcheck

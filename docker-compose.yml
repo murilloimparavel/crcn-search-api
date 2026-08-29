@@ -7,6 +7,6 @@ services:
     environment:
       - PORT=3000
       - NODE_ENV=production
-      - SCRAPER_NAVIGATION_TIMEOUT_MS=18000
-      - SCRAPER_RENDER_TIMEOUT_MS=8000
+      - STAYS_REQUEST_TIMEOUT_MS=12000
+      - STAYS_PRICE_CONCURRENCY=3
       - CORS_ORIGINS=https://crm.murilloalves.com.br
