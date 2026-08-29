@@ -4,6 +4,7 @@ const cors = require('cors');
 const { scrapeCRCN, closeBrowser } = require('./scraper');
 const { processAndRankResults } = require('./normalizer');
 const { fetchWithDeduplication, clearCache } = require('./cache');
+const { calculateDate } = require('./date-calculator');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -95,6 +96,12 @@ app.get('/health', (req, res) => {
     uptime: process.uptime(),
     timestamp: new Date().toISOString()
   });
+});
+
+// Resolve expressões relativas de data no fuso de São Paulo para uso por agentes.
+app.get('/api/v1/date/calculate', (req, res) => {
+  const result = calculateDate(req.query.expression, req.query.reference_date);
+  return res.status(result.sucesso ? 200 : 400).json(result);
 });
 
 // Limpar cache manual
