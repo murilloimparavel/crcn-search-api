@@ -4,7 +4,10 @@ const cors = require('cors');
 const { scrapeCRCN, closeBrowser } = require('./scraper');
 const { processAndRankResults } = require('./normalizer');
 const { fetchWithDeduplication, clearCache } = require('./cache');
-const { calculateDate } = require('./date-calculator');
+const { calculateDate, todayInSaoPaulo } = require('./date-calculator');
+
+const SEARCH_DATE_FORMAT = 'YYYY-MM-DD';
+const SEARCH_DATE_EXAMPLE = '2026-09-05';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -82,10 +85,31 @@ function parseAndValidateDate(dateStr) {
   return { year, month, day, dateObj, str: formattedStr };
 }
 
-// Obter hoje 00:00:00 UTC
-function getTodayUTC() {
-  const now = new Date();
-  return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+// Data mínima da busca: hoje no fuso operacional da CRCN, não no UTC.
+function getTodayBRT() {
+  return todayInSaoPaulo();
+}
+
+function searchValidationError({ code, parameter, received, message }) {
+  return {
+    sucesso: false,
+    codigo: code,
+    erro: message,
+    parametro: parameter,
+    valor_recebido: received,
+    formato_aceito: SEARCH_DATE_FORMAT,
+    exemplo: SEARCH_DATE_EXAMPLE,
+    contrato: 'Envie datas concretas, sem texto explicativo. Ex.: from=2026-09-05&to=2026-09-07&persons=4'
+  };
+}
+
+function logSearch(event, fields = {}) {
+  console.log(JSON.stringify({
+    event,
+    service: 'crcn-search-api',
+    timestamp: new Date().toISOString(),
+    ...fields
+  }));
 }
 
 // Healthcheck
@@ -119,15 +143,22 @@ app.post('/api/v1/cache/clear', (req, res) => {
 
 // Endpoint principal de pesquisa
 app.get('/api/v1/search', async (req, res) => {
-  console.log('[API Incoming Request]', req.method, req.url, 'Query:', JSON.stringify(req.query));
+  const startedAt = Date.now();
+  const requestId = req.get('x-request-id') || `${startedAt}-${Math.random().toString(36).slice(2, 8)}`;
   const { from, to, persons = 2, max_results = 10 } = req.query;
+
+  logSearch('search.request', { request_id: requestId, from, to, persons, max_results });
 
   // 1. Validação de presença
   if (!from || !to) {
-    return res.status(400).json({
-      sucesso: false,
-      erro: 'Parâmetros "from" e "to" são obrigatórios no formato YYYY-MM-DD.'
+    const payload = searchValidationError({
+      code: 'MISSING_REQUIRED_DATE',
+      parameter: !from ? 'from' : 'to',
+      received: !from ? from : to,
+      message: 'Os parâmetros "from" (check-in) e "to" (check-out) são obrigatórios.'
     });
+    logSearch('search.validation_error', { request_id: requestId, code: payload.codigo, parameter: payload.parametro, received: payload.valor_recebido });
+    return res.status(400).json(payload);
   }
 
   // 2. Validação estrita de calendário
@@ -135,19 +166,32 @@ app.get('/api/v1/search', async (req, res) => {
   const validTo = parseAndValidateDate(to);
 
   if (!validFrom || !validTo) {
-    return res.status(400).json({
-      sucesso: false,
-      erro: 'Data inválida no calendário. Use o formato YYYY-MM-DD (ex: 2026-09-10).'
+    const parameter = !validFrom ? 'from' : 'to';
+    const received = !validFrom ? from : to;
+    const payload = searchValidationError({
+      code: 'INVALID_DATE_FORMAT',
+      parameter,
+      received,
+      message: `O parâmetro "${parameter}" não contém uma data válida.`
     });
+    logSearch('search.validation_error', { request_id: requestId, code: payload.codigo, parameter, received });
+    return res.status(400).json(payload);
   }
 
   // 3. Validação de data no passado
-  const todayUTC = getTodayUTC();
-  if (validFrom.dateObj < todayUTC) {
-    return res.status(400).json({
-      sucesso: false,
-      erro: 'A data de check-in (from) não pode ser anterior à data de hoje.'
+  const todayBRT = getTodayBRT();
+  if (validFrom.dateObj < todayBRT) {
+    const payload = searchValidationError({
+      code: 'CHECK_IN_IN_PAST',
+      parameter: 'from',
+      received: validFrom.str,
+      message: 'A data de check-in (from) não pode ser anterior à data de hoje em Brasília.'
     });
+    payload.data_minima = todayBRT.toISOString().slice(0, 10);
+    payload.ferramenta_recomendada = 'calcular_data_brt';
+    payload.acao_recomendada = 'Se o cliente usar uma referência relativa, como “próxima sexta” ou “amanhã”, use calcular_data_brt. Caso contrário, peça uma nova data de check-in igual ou posterior à data mínima antes de consultar novamente.';
+    logSearch('search.validation_error', { request_id: requestId, code: payload.codigo, parameter: payload.parametro, received: payload.valor_recebido });
+    return res.status(400).json(payload);
   }
 
   // 4. Validação de período
@@ -155,26 +199,40 @@ app.get('/api/v1/search', async (req, res) => {
   const nights = Math.round(diffTime / (1000 * 60 * 60 * 24));
 
   if (nights <= 0) {
-    return res.status(400).json({
-      sucesso: false,
-      erro: 'A data de check-out (to) deve ser posterior à data de check-in (from) em pelo menos 1 noite.'
+    const payload = searchValidationError({
+      code: 'INVALID_STAY_RANGE',
+      parameter: 'to',
+      received: validTo.str,
+      message: 'A data de check-out (to) deve ser posterior à data de check-in (from) em pelo menos 1 noite.'
     });
+    logSearch('search.validation_error', { request_id: requestId, code: payload.codigo, parameter: payload.parametro, received: payload.valor_recebido });
+    return res.status(400).json(payload);
   }
 
   if (nights > 60) {
-    return res.status(400).json({
-      sucesso: false,
-      erro: 'O período máximo permitido para pesquisa online é de 60 noites.'
+    const payload = searchValidationError({
+      code: 'STAY_TOO_LONG',
+      parameter: 'to',
+      received: validTo.str,
+      message: 'O período máximo permitido para pesquisa online é de 60 noites.'
     });
+    logSearch('search.validation_error', { request_id: requestId, code: payload.codigo, parameter: payload.parametro, received: payload.valor_recebido });
+    return res.status(400).json(payload);
   }
 
   // 5. Validação de hóspedes
   const numPersons = parseInt(persons, 10);
   if (isNaN(numPersons) || numPersons < 1 || numPersons > 30) {
-    return res.status(400).json({
+    const payload = {
       sucesso: false,
-      erro: 'O parâmetro "persons" deve ser um número inteiro entre 1 e 30 hóspedes.'
-    });
+      codigo: 'INVALID_PERSONS',
+      erro: 'O parâmetro "persons" deve ser um número inteiro entre 1 e 30 hóspedes.',
+      parametro: 'persons',
+      valor_recebido: persons,
+      exemplo: 4
+    };
+    logSearch('search.validation_error', { request_id: requestId, code: payload.codigo, parameter: payload.parametro, received: persons });
+    return res.status(400).json(payload);
   }
 
   const limitResults = Math.min(Math.max(parseInt(max_results, 10) || 10, 1), 50);
@@ -212,13 +270,29 @@ app.get('/api/v1/search', async (req, res) => {
     const finalOptions = responseData.opcoes.slice(0, limitResults);
     
     res.setHeader('X-Cache', isHit ? 'HIT' : 'MISS');
-    return res.json({
+    const payload = {
       ...responseData,
       tempo_resposta_ms: isHit ? 5 : (Date.now() - startTime),
       opcoes: finalOptions
+    };
+    logSearch('search.success', {
+      request_id: requestId,
+      from: validFrom.str,
+      to: validTo.str,
+      persons: numPersons,
+      cache: isHit ? 'HIT' : 'MISS',
+      total_encontrados: responseData.total_encontrados,
+      returned_options: finalOptions.length,
+      duration_ms: Date.now() - startedAt
     });
+    return res.json(payload);
   } catch (error) {
-    console.error('[API Error]', error);
+    logSearch('search.error', {
+      request_id: requestId,
+      code: error.code || 'SEARCH_UNEXPECTED_ERROR',
+      message: error.message,
+      duration_ms: Date.now() - startedAt
+    });
     res.status(500).json({
       sucesso: false,
       erro: error.code === 'SCRAPER_TIMEOUT'
