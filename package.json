@@ -6,8 +6,8 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
-    "test": "node test/date-calculator.test.js",
-    "test:scraper": "node test/test_scraper.js"
+    "test": "node test/date-calculator.test.js && node test/stays-client.test.js",
+    "test:stays": "node test/stays-client.test.js"
   },
   "keywords": [
     "crcn",
@@ -22,7 +22,6 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
-    "lru-cache": "^10.4.3",
-    "puppeteer": "^23.11.1"
+    "lru-cache": "^10.4.3"
   }
 }

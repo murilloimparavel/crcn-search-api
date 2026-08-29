@@ -1,123 +1,63 @@
-/**
- * Dicionário de diferenciais dos condomínios mais populares de Caldas Novas
- */
-const CONDOMINIO_EXTRAS = {
-  'evian': 'Resort de luxo, complexo aquático completo com águas termais, cinema, salão de jogos, academia e alta gastronomia.',
-  'golden': 'Parque aquático completo com múltiplas piscinas termais, toboáguas, sauna, recreação infantil e lanchonetes.',
-  'boulevard': 'Excelente localização central, parque aquático termal com cascatas, hidromassagem, toboáguas e bar molhado.',
-  'thermas place': 'Piscinas termais 24h, sauna, excelente custo-benefício e localização privilegiada próxima ao centro.',
-  'lagoa': 'Estrutura moderna, ambiente familiar com ampla área verde e proximidade com o Lagoa Termas Parque.',
-  'amethist': 'Ótima localização central, piscinas termais, sauna e fácil acesso aos melhores restaurantes e comércio.',
-  'recanto do bosque': 'Ambiente tranquilo, familiar e arborizado com piscinas termais e sauna.',
-  'eldorado': 'Complexo de lazer termal, toboáguas, saunas, quadras e parque aquático para todas as idades.',
-  'aquarius': 'Piscinas de águas termais, lanchonete, recepção 24h e ambiente familiar acolhedor.',
-  'piazza': 'Design moderno e sofisticado, piscinas termais com borda infinita, hidromassagem e arquitetura italiana.',
-  'diroma': 'Acesso a um dos maiores complexos termais, toboáguas gigantes e ampla infraestrutura de lazer.',
-  'rio das pedras': 'Ambiente aconchegante com águas termais naturais, tranquilidade e área verde.'
-};
-
-function getDiferenciais(condominio) {
-  const lower = (condominio || '').toLowerCase();
-  for (const [key, desc] of Object.entries(CONDOMINIO_EXTRAS)) {
-    if (lower.includes(key)) {
-      return desc;
-    }
-  }
-  return 'Parque aquático com piscinas de águas termais naturais, sauna e estrutura de lazer completa.';
+function cleanText(value) {
+  return String(value || '')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
-/**
- * Sanitiza strings e remove quebras de linha/espaços excessivos
- */
-function cleanString(str) {
-  if (!str) return '';
-  return str.replace(/\s+/g, ' ').trim();
+function getTitle(apartment) {
+  return cleanText(
+    apartment?._t_mstitle?.pt_BR
+    || apartment?._mstitle?.pt_BR
+    || apartment?.avatar
+    || apartment?.id
+    || 'Apartamento em Caldas Novas'
+  );
 }
 
-/**
- * Normaliza e enriquece os dados brutos extraídos do site da CRCN
- */
-function normalizeApartment(raw, from, to, nights, persons) {
-  const text = raw.text || '';
-  
-  // Extrair nome
-  const lines = text.split('\n').map(l => cleanString(l)).filter(Boolean);
-  const nome = lines[0] || 'Apartamento em Caldas Novas';
-  
-  // Extrair condomínio
-  const condominio = cleanString(nome.split('-')[0]);
-  
-  // Extrair quartos
-  const quartosMatch = text.match(/(\d+)\s*Quarto/i);
-  const quartos = quartosMatch ? parseInt(quartosMatch[1], 10) : 1;
-  
-  // Extrair banheiros
-  const banheirosMatch = text.match(/(\d+)\s*Banheiro/i);
-  const banheiros = banheirosMatch ? parseInt(banheirosMatch[1], 10) : 1;
-  
-  // Extrair capacidade de hóspedes
-  const hospedesMatch = text.match(/(\d+)\s*H[oó]spede/i);
-  const safePersons = Number.isInteger(persons) && persons > 0 ? persons : 2;
-  const capacidade = hospedesMatch ? parseInt(hospedesMatch[1], 10) : safePersons;
-  
-  // Extrair valor da diária
-  let valorDiaria = 0;
-  const precoMatch = text.match(/R\$\s*([\d\.,]+)/i);
-  if (precoMatch) {
-    const rawPrice = precoMatch[1].replace(/\./g, '').replace(',', '.');
-    valorDiaria = parseFloat(rawPrice) || 0;
-  }
-  
-  const safeNights = Number.isInteger(nights) && nights > 0 ? nights : 1;
-  const valorTotal = parseFloat((valorDiaria * safeNights).toFixed(2));
-  const diferenciais = getDiferenciais(condominio);
-  
+function getCondominio(apartment, title) {
+  return cleanText(apartment?._t_building?._t_mstitle?.pt_BR || title.split('-')[0]);
+}
+
+function getDiferenciais(apartment) {
+  const resumo = cleanText(apartment?._mssummary?.pt_BR || apartment?._msdesc?.pt_BR);
+  return resumo ? resumo.slice(0, 280) : '';
+}
+
+function buildBookingLink({ from, to, persons }) {
+  const params = new URLSearchParams({ from, to, persons: String(persons) });
+  return `https://www.centraldereservascaldas.com.br/pt/search?${params}`;
+}
+
+function normalizeApartment({ apartment, price }, { from, to, persons }) {
+  const nome = getTitle(apartment);
   return {
-    id: raw.id || null,
+    id: apartment._id || apartment.id || null,
     nome,
-    condominio,
-    cidade: 'Caldas Novas',
-    quartos,
-    banheiros,
-    capacidade,
-    valor_diaria: valorDiaria,
-    valor_total: valorTotal,
-    diferenciais,
-    link_reserva: raw.link || `https://www.centraldereservascaldas.com.br/pt/search?from=${from}&to=${to}&persons=${safePersons}`
+    condominio: getCondominio(apartment, nome),
+    cidade: cleanText(apartment?._adr?.city) || 'Caldas Novas',
+    quartos: Number(apartment?._i_rooms) || null,
+    banheiros: Number(apartment?._f_bathrooms) || null,
+    capacidade: Number(apartment?._i_maxPers) || persons,
+    valor_diaria: price.valor_diaria,
+    valor_total: price.valor_total,
+    diferenciais: getDiferenciais(apartment),
+    link_reserva: buildBookingLink({ from, to, persons })
   };
 }
 
-/**
- * Categoriza e ordena os resultados para facilitar a escolha da LLM
- */
-function processAndRankResults(apartments, from, to, nights, persons) {
-  const normalized = apartments.map(a => normalizeApartment(a, from, to, nights, persons));
-  
-  // Ordenar por preço (mais econômico primeiro)
-  normalized.sort((a, b) => a.valor_diaria - b.valor_diaria);
-  
-  if (normalized.length === 0) {
-    return [];
-  }
-  
-  // Marcar categorias recomendadas
-  const count = normalized.length;
+function processAndRankResults(pricedApartments, criteria) {
+  const normalized = pricedApartments.map((item) => normalizeApartment(item, criteria));
+  normalized.sort((a, b) => a.valor_total - b.valor_total);
   normalized.forEach((item, index) => {
-    if (index === 0) {
-      item.tag_sugerida = 'Mais Econômica';
-    } else if (index === Math.floor(count / 2)) {
-      item.tag_sugerida = 'Melhor Custo-Benefício';
-    } else if (index === count - 1 || item.quartos >= 3) {
-      item.tag_sugerida = 'Mais Completa / Alto Padrão';
-    } else {
-      item.tag_sugerida = 'Opção Disponível';
-    }
+    item.tag_sugerida = index === 0
+      ? 'Mais Econômica'
+      : index === Math.floor(normalized.length / 2)
+        ? 'Melhor Custo-Benefício'
+        : 'Opção Disponível';
   });
-  
   return normalized;
 }
 
-module.exports = {
-  normalizeApartment,
-  processAndRankResults
-};
+module.exports = { cleanText, normalizeApartment, processAndRankResults };

@@ -1,6 +1,12 @@
 # CRCN Search API 🏨
 
-Micro-API de busca ao vivo de disponibilidade, flats, diárias e capacidades na Central de Reservas Caldas Novas (https://www.centraldereservascaldas.com.br/).
+Micro-API de busca ao vivo de disponibilidade, flats, diárias, totais e capacidades na Central de Reservas Caldas Novas (https://www.centraldereservascaldas.com.br/).
+
+## Como a cotação é obtida
+
+A API usa o mesmo fluxo HTTP público do frontend Stays: cria uma sessão anônima, lê a lista JSON de apartamentos e consulta `helpers._correctApartPrice` para cada opção retornada. `valor_total` vem do campo oficial `_t_mctotal.BRL`; ele não é calculado a partir de texto do HTML.
+
+O resultado é uma consulta atual, sujeita à confirmação no link de reserva. A API mantém cache por três minutos para reduzir chamadas repetidas.
 
 ## Endpoints
 

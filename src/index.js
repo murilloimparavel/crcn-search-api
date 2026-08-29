@@ -1,7 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const { scrapeCRCN, closeBrowser } = require('./scraper');
+const { StaysClient } = require('./stays-client');
 const { processAndRankResults } = require('./normalizer');
 const { fetchWithDeduplication, clearCache } = require('./cache');
 const { calculateDate, todayInSaoPaulo } = require('./date-calculator');
@@ -12,6 +12,7 @@ const SEARCH_DATE_EXAMPLE = '2026-09-05';
 const app = express();
 const PORT = process.env.PORT || 3000;
 const isProduction = process.env.NODE_ENV === 'production';
+const staysClient = new StaysClient();
 const allowedOrigins = (process.env.CORS_ORIGINS || '')
   .split(',')
   .map((origin) => origin.trim())
@@ -245,12 +246,20 @@ app.get('/api/v1/search', async (req, res) => {
       validFrom.str,
       validTo.str,
       numPersons,
+      limitResults,
       async () => {
-        // Scraper real no site da CRCN
-        const rawApartments = await scrapeCRCN(validFrom.str, validTo.str, numPersons);
-        
-        // Normalização e ranqueamento
-        const allOptions = processAndRankResults(rawApartments, validFrom.str, validTo.str, nights, numPersons);
+        // Fluxo HTTP usado pelo próprio frontend Stays: sessão, busca JSON e preço oficial.
+        const pricedApartments = await staysClient.search({
+          from: validFrom.str,
+          to: validTo.str,
+          persons: numPersons,
+          limit: limitResults
+        });
+        const allOptions = processAndRankResults(pricedApartments, {
+          from: validFrom.str,
+          to: validTo.str,
+          persons: numPersons
+        });
 
         return {
           sucesso: true,
@@ -295,7 +304,7 @@ app.get('/api/v1/search', async (req, res) => {
     });
     res.status(500).json({
       sucesso: false,
-      erro: error.code === 'SCRAPER_TIMEOUT'
+      erro: error.code === 'STAYS_TIMEOUT'
         ? 'A consulta de disponibilidade excedeu o tempo limite. Tente novamente em instantes.'
         : 'Falha ao consultar disponibilidade na Central de Reservas Caldas.',
       ...(isProduction ? {} : { detalhes: error.message })
@@ -311,8 +320,7 @@ const server = app.listen(PORT, '0.0.0.0', () => {
 
 function shutdown(signal) {
   console.log(`[crcn-search-api] ${signal} recebido; encerrando HTTP server.`);
-  server.close(async () => {
-    await closeBrowser();
+  server.close(() => {
     process.exit(0);
   });
   setTimeout(() => process.exit(1), 10_000).unref();

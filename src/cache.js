@@ -2,7 +2,7 @@ const { LRUCache } = require('lru-cache');
 
 const options = {
   max: 500, // Máximo de 500 buscas cacheadas
-  ttl: 1000 * 60 * 10, // 10 minutos de validade por cotação
+  ttl: 1000 * 60 * 3, // Cotação/dados de disponibilidade mudam rapidamente.
   allowStale: false,
   updateAgeOnGet: true
 };
@@ -10,8 +10,8 @@ const options = {
 const searchCache = new LRUCache(options);
 const inFlightRequests = new Map();
 
-function buildKey(from, to, persons) {
-  return `${from}_${to}_${persons}`;
+function buildKey(from, to, persons, limit = 10) {
+  return `${from}_${to}_${persons}_${limit}`;
 }
 
 function getCachedSearch(from, to, persons) {
@@ -32,8 +32,8 @@ function clearCache() {
 /**
  * Deduplica requisições simultâneas idênticas (Prevenção de Cache Stampede)
  */
-async function fetchWithDeduplication(from, to, persons, fetchFn) {
-  const key = buildKey(from, to, persons);
+async function fetchWithDeduplication(from, to, persons, limit, fetchFn) {
+  const key = buildKey(from, to, persons, limit);
   
   // 1. Se já está no cache, retorna imediatamente
   const cached = searchCache.get(key);
