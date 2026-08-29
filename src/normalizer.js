@@ -25,8 +25,34 @@ function getDiferenciais(apartment) {
   return resumo ? resumo.slice(0, 280) : '';
 }
 
-function buildBookingLink({ from, to, persons }) {
+function slugify(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/&/g, ' e ')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function getPublicApartmentCode(apartment) {
+  // The Stays public page uses the short listing code (e.g. LG03J), not _id.
+  return cleanText(apartment?.id || apartment?._id);
+}
+
+function getApartmentSlug(apartment, title) {
+  // `avatar` matches the website slug (e.g. "Aquarius Flat - Apto D 704").
+  return slugify(apartment?.avatar || title);
+}
+
+function buildBookingLink({ apartment, from, to, persons, title }) {
   const params = new URLSearchParams({ from, to, persons: String(persons) });
+  const code = getPublicApartmentCode(apartment);
+  const slug = getApartmentSlug(apartment, title);
+  if (code && slug) {
+    return `https://www.centraldereservascaldas.com.br/pt/apartment/${encodeURIComponent(code)}/${slug}?${params}`;
+  }
+  // Keep a safe fallback for malformed records without public identity.
   return `https://www.centraldereservascaldas.com.br/pt/search?${params}`;
 }
 
@@ -43,7 +69,7 @@ function normalizeApartment({ apartment, price }, { from, to, persons }) {
     valor_diaria: price.valor_diaria,
     valor_total: price.valor_total,
     diferenciais: getDiferenciais(apartment),
-    link_reserva: buildBookingLink({ from, to, persons })
+    link_reserva: buildBookingLink({ apartment, title: nome, from, to, persons })
   };
 }
 
@@ -60,4 +86,4 @@ function processAndRankResults(pricedApartments, criteria) {
   return normalized;
 }
 
-module.exports = { cleanText, normalizeApartment, processAndRankResults };
+module.exports = { cleanText, slugify, buildBookingLink, normalizeApartment, processAndRankResults };

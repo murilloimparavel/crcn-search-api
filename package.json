@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
-    "test": "node test/date-calculator.test.js && node test/stays-client.test.js",
+    "test": "node test/date-calculator.test.js && node test/stays-client.test.js && node test/normalizer.test.js",
     "test:stays": "node test/stays-client.test.js"
   },
   "keywords": [
