@@ -449,8 +449,8 @@ function calculateDate(expression, referenceDate) {
     }
   }
 
-  // 3. DETECTAR INTERVALOS EXPLÍCITOS ("X a Y", "X ate Y")
-  const intervalRegex = /^(.+?)\s+(?:a|ate|ao|ate o dia|ate a|ate o|e|-)\s+(.+)$/i;
+  // 3. DETECTAR INTERVALOS EXPLÍCITOS ("X a Y", "X ate Y", "dia X ao dia Y")
+  const intervalRegex = /^(.+?)\s+(?:ate\s+o\s+dia|ate\s+a|ate\s+o|ate|ao\s+dia|ao|a\s+o\s+dia|a|e|-)\s+(.+)$/i;
   const match = norm.match(intervalRegex);
 
   let startDate = null;
@@ -459,8 +459,17 @@ function calculateDate(expression, referenceDate) {
 
   if (match) {
     isExplicitInterval = true;
-    let startStr = match[1].trim();
-    let endStr = match[2].trim();
+    let startStr = match[1].replace(/^dia\s+/i, '').trim();
+    let endStr = match[2].replace(/^dia\s+/i, '').trim();
+
+    // Se o final tem mês (ex: "30 de setembro") e o início é só o número do dia (ex: "25"), herdar o mês no início
+    const endMonthMatch = endStr.match(/^(\d{1,2})\s+(?:de\s+)?([a-z]+)(?:\s+(?:de\s+)?(\d{4}))?$/i);
+    const startNumberMatch = startStr.match(/^(\d{1,2})$/i);
+    if (endMonthMatch && startNumberMatch && MONTHS[normalizeText(endMonthMatch[2])]) {
+      const monthPart = endMonthMatch[2];
+      const yearPart = endMonthMatch[3] ? ` de ${endMonthMatch[3]}` : '';
+      startStr = `${startNumberMatch[1]} de ${monthPart}${yearPart}`;
+    }
 
     if (endStr.includes('outro final de semana') || endStr.includes('outra semana')) {
       endStr = endStr.replace(/do outro final de semana|da outra semana/g, '').trim();

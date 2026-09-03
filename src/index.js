@@ -138,10 +138,10 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Resolve expressões relativas de data no fuso de São Paulo para uso por agentes.
+// Resolve expressões relativas de data no fuso de São Paulo para uso por agentes (sempre HTTP 200).
 app.get('/api/v1/date/calculate', (req, res) => {
   const result = calculateDate(req.query.expression, req.query.reference_date);
-  return res.status(result.sucesso ? 200 : 400).json(result);
+  return res.status(200).json(result);
 });
 
 // Limpar cache manual

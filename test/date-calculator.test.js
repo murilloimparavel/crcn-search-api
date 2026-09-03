@@ -26,7 +26,9 @@ test('feriado de finados', '2026-09-02', { tipo: 'feriado', feriado: 'Finados', 
 test('dia das criancas', '2026-09-02', { tipo: 'feriado', feriado: 'Nossa Senhora Aparecida / Dia das Crianças', check_in: '2026-10-09', check_out: '2026-10-13' });
 test('reveillon', '2026-09-02', { tipo: 'feriado', feriado: 'Ano Novo / Réveillon', check_in: '2026-12-29', check_out: '2027-01-02' });
 
-// 4. Testes de expressões mensais
+// 4. Testes de expressões mensais e intervalos de dias
+test('25 a 30 de setembro', '2026-09-02', { tipo: 'intervalo', check_in: '2026-09-25', check_out: '2026-09-30', noites: 5 });
+test('dia 10 ao dia 15 de outubro', '2026-09-02', { tipo: 'intervalo', check_in: '2026-10-10', check_out: '2026-10-15', noites: 5 });
 test('primeiro fim de semana de outubro', '2026-09-02', { tipo: 'intervalo', check_in: '2026-10-02', check_out: '2026-10-04', noites: 2 });
 
 console.log('✅ date-calculator: TODOS OS TESTES PASSARAM COM SUCESSO!');
