@@ -138,9 +138,11 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Resolve expressões relativas de data no fuso de São Paulo para uso por agentes (sempre HTTP 200).
-app.get('/api/v1/date/calculate', (req, res) => {
-  const result = calculateDate(req.query.expression, req.query.reference_date);
+// Resolve expressões relativas de data no fuso de São Paulo para uso por agentes (sempre HTTP 200 via GET ou POST).
+app.all('/api/v1/date/calculate', (req, res) => {
+  const expression = req.body?.expression || req.query.expression;
+  const referenceDate = req.body?.reference_date || req.query.reference_date;
+  const result = calculateDate(expression, referenceDate);
   return res.status(200).json(result);
 });
 
