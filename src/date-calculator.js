@@ -179,13 +179,63 @@ function getHolidayPackage(holidayDate) {
   return { start, end };
 }
 
+const ORDINAL_NUMBERS = {
+  primeiro: 1, primeira: 1, '1o': 1, '1a': 1,
+  segundo: 2, segunda: 2, '2o': 2, '2a': 2,
+  terceiro: 3, terceira: 3, '3o': 3, '3a': 3,
+  quarto: 4, quarta: 4, '4o': 4, '4a': 4,
+  quinto: 5, quinta: 5, '5o': 5, '5a': 5,
+  ultimo: 'last', ultima: 'last'
+};
+
+const NUMBERS_IN_WORDS = {
+  um: 1, uma: 1, dois: 2, duas: 2, tres: 3, três: 3, quatro: 4, cinco: 5,
+  seis: 6, sete: 7, oito: 8, nove: 9, dez: 10, onze: 11, doze: 12,
+  treze: 13, quatorze: 14, catorze: 14, quinze: 15, dezesseis: 16,
+  dezessete: 17, dezoito: 18, dezenove: 19, vinte: 20, trinta: 30
+};
+
 function normalizeText(val) {
-  return String(val || '')
+  let text = String(val || '')
     .trim()
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/\s+/g, ' ');
+
+  // 1. Substituição de gírias e abreviações turísticas
+  text = text
+    .replace(/\bfds\b/g, 'fim de semana')
+    .replace(/\bferiadao\b/g, 'feriado prolongado')
+    .replace(/\bvirada\s+de\s+ano\b/g, 'reveillon')
+    .replace(/\bvirada\b/g, 'reveillon')
+    .replace(/\bpassagem\s+de\s+ano\b/g, 'reveillon')
+    .replace(/\bfinal\s+de\s+semana\b/g, 'fim de semana');
+
+  // 2. Normalização de contrações de mês numérico: "do 10", "do 09", "de 10" -> "de outubro", "de setembro"
+  const MONTH_NAMES_BY_NUM = {
+    1: 'janeiro', 2: 'fevereiro', 3: 'marco', 4: 'abril', 5: 'maio', 6: 'junho',
+    7: 'julho', 8: 'agosto', 9: 'setembro', 10: 'outubro', 11: 'novembro', 12: 'dezembro'
+  };
+
+  text = text.replace(/(?:do|de|no)\s+(\d{1,2})\b/g, (match, numStr, offset, fullStr) => {
+    const num = Number(numStr);
+    // Se o número for entre 1 e 12 e antecedido por um número de dia (ex: "15 do 10" ou "25 a 30 do 10")
+    if (num >= 1 && num <= 12 && offset > 0) {
+      const before = fullStr.slice(0, offset);
+      if (/\d+\s*(?:a|ate|ao|e|-)?\s*$/.test(before) || /\d+$/.test(before)) {
+        return `de ${MONTH_NAMES_BY_NUM[num]}`;
+      }
+    }
+    return match;
+  });
+
+  // 3. Limpeza de prefixos/preposições iniciais que atrapalham o parser de intervalo
+  text = text
+    .replace(/^(?:a\s+partir\s+de|a\s+partir\s+do\s+dia|desde\s+o\s+dia|desde|no\s+dia|do\s+dia|de\s+o\s+dia|de)\s+/i, '')
+    .replace(/^(?:quero\s+viajar\s+em|quero\s+ir\s+em|quero\s+reserva\s+para|reserva\s+para|para\s+o\s+dia|para\s+o|para|pro\s+dia|pro)\s+/i, '');
+
+  return text.trim();
 }
 
 function getNowBRT(customDate) {
@@ -462,20 +512,26 @@ function calculateDate(expression, referenceDate) {
     let startStr = match[1].replace(/^dia\s+/i, '').trim();
     let endStr = match[2].replace(/^dia\s+/i, '').trim();
 
-    // Se o final tem mês (ex: "30 de setembro") e o início é só o número do dia (ex: "25"), herdar o mês no início
+    // Se o final tem mês por extenso (ex: "30 de setembro") e o início é só o número do dia (ex: "25"), herdar o mês no início
     const endMonthMatch = endStr.match(/^(\d{1,2})\s+(?:de\s+)?([a-z]+)(?:\s+(?:de\s+)?(\d{4}))?$/i);
+    const endSlashMatch = endStr.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?$/);
     const startNumberMatch = startStr.match(/^(\d{1,2})$/i);
-    if (endMonthMatch && startNumberMatch && MONTHS[normalizeText(endMonthMatch[2])]) {
+
+    if (startNumberMatch && endMonthMatch && MONTHS[normalizeText(endMonthMatch[2])]) {
       const monthPart = endMonthMatch[2];
       const yearPart = endMonthMatch[3] ? ` de ${endMonthMatch[3]}` : '';
       startStr = `${startNumberMatch[1]} de ${monthPart}${yearPart}`;
+    } else if (startNumberMatch && endSlashMatch) {
+      const monthPart = endSlashMatch[2];
+      const yearPart = endSlashMatch[3] ? `/${endSlashMatch[3]}` : '';
+      startStr = `${startNumberMatch[1]}/${monthPart}${yearPart}`;
     }
 
-    if (endStr.includes('outro final de semana') || endStr.includes('outra semana')) {
-      endStr = endStr.replace(/do outro final de semana|da outra semana/g, '').trim();
-      if (!startStr.includes('outro')) startStr += ' do outro final de semana';
-    } else if (endStr.includes('semana que vem') || endStr.includes('proxima semana') || endStr.includes('proximo')) {
-      endStr = endStr.replace(/da semana que vem|da proxima semana|proxima|proximo/g, '').trim();
+    if (endStr.includes('outro fim de semana') || endStr.includes('outra semana')) {
+      endStr = endStr.replace(/do outro fim de semana|da outra semana/g, '').trim();
+      if (!startStr.includes('outro')) startStr += ' do outro fim de semana';
+    } else if (endStr.includes('semana que vem') || endStr.includes('proxima semana') || endStr.includes('proximo fim de semana')) {
+      endStr = endStr.replace(/da semana que vem|da proxima semana|do proximo fim de semana|proxima|proximo/g, '').trim();
       if (!startStr.includes('semana que vem') && !startStr.includes('proxim')) startStr += ' da semana que vem';
     }
 
@@ -496,14 +552,23 @@ function calculateDate(expression, referenceDate) {
     endDate = addDays(startDate, 6);
   } else if (norm.includes('fim de semana') || norm.includes('final de semana')) {
     isExplicitInterval = true;
-    let offset = 0;
-    if (norm.includes('outro') || norm.includes('outra')) offset = 2;
-    else if (norm.includes('proximo') || norm.includes('semana que vem')) offset = 1;
+    const isOutro = norm.includes('outro') || norm.includes('outra');
+    const isProximo = norm.includes('proximo') || norm.includes('próximo') || norm.includes('semana que vem');
+    const isEste = norm.includes('este') || norm.includes('esse') || norm.includes('atual');
 
-    let daysToFriday = (5 - base.getUTCDay() + 7) % 7;
-    if (daysToFriday === 0 && offset === 0) daysToFriday = 7;
-    daysToFriday += (offset > 0 ? (offset - 1) * 7 : 0);
-    if (offset > 0 && daysToFriday < 7) daysToFriday += 7;
+    // Se hoje é sábado (6) ou domingo (0), o próximo fim de semana é a sexta-feira subsequente (+6 ou +5 dias)
+    let daysToFriday;
+    if (base.getUTCDay() === 6) { // Sábado
+      daysToFriday = isOutro ? 13 : 6;
+    } else if (base.getUTCDay() === 0) { // Domingo
+      daysToFriday = isOutro ? 12 : 5;
+    } else if (base.getUTCDay() === 5) { // Sexta
+      daysToFriday = (isProximo || isOutro) ? (isOutro ? 14 : 7) : 0;
+    } else { // Segunda a Quinta (1 a 4)
+      daysToFriday = (5 - base.getUTCDay());
+      if (isOutro) daysToFriday += 7;
+      else if (isProximo && !isEste && daysToFriday < 2) daysToFriday += 7;
+    }
 
     startDate = addDays(base, daysToFriday);
     endDate = addDays(startDate, 2);

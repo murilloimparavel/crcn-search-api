@@ -31,4 +31,12 @@ test('25 a 30 de setembro', '2026-09-02', { tipo: 'intervalo', check_in: '2026-0
 test('dia 10 ao dia 15 de outubro', '2026-09-02', { tipo: 'intervalo', check_in: '2026-10-10', check_out: '2026-10-15', noites: 5 });
 test('primeiro fim de semana de outubro', '2026-09-02', { tipo: 'intervalo', check_in: '2026-10-02', check_out: '2026-10-04', noites: 2 });
 
+// 5. Testes da Sprint 1 (Gírias, preposições e meses numéricos coloquiais)
+test('de 12 ate 15 do 10', '2026-09-02', { tipo: 'intervalo', check_in: '2026-10-12', check_out: '2026-10-15', noites: 3 });
+test('do dia 15 ao dia 18/11', '2026-09-02', { tipo: 'intervalo', check_in: '2026-11-15', check_out: '2026-11-18', noites: 3 });
+test('a partir de 20 a 25 do 12', '2026-09-02', { tipo: 'intervalo', check_in: '2026-12-20', check_out: '2026-12-25', noites: 5 });
+test('proximo fds', '2026-08-29', { tipo: 'intervalo', check_in: '2026-09-04', check_out: '2026-09-06', noites: 2 });
+test('feriadao de finados', '2026-09-02', { tipo: 'feriado', feriado: 'Finados', check_in: '2026-10-30', check_out: '2026-11-03' });
+test('virada de ano', '2026-09-02', { tipo: 'feriado', feriado: 'Ano Novo / Réveillon', check_in: '2026-12-29', check_out: '2027-01-02' });
+
 console.log('✅ date-calculator: TODOS OS TESTES PASSARAM COM SUCESSO!');
