@@ -551,4 +551,8 @@ function calculateDate(expression, referenceDate) {
   };
 }
 
-module.exports = { calculateDate, getNowBRT, getHolidaysForYear };
+function todayInSaoPaulo() {
+  return getNowBRT().iso;
+}
+
+module.exports = { calculateDate, getNowBRT, getHolidaysForYear, todayInSaoPaulo };

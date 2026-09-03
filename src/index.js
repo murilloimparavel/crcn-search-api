@@ -4,7 +4,7 @@ const cors = require('cors');
 const { StaysClient } = require('./stays-client');
 const { processAndRankResults } = require('./normalizer');
 const { fetchWithDeduplication, clearCache } = require('./cache');
-const { calculateDate, todayInSaoPaulo } = require('./date-calculator');
+const { calculateDate, todayInSaoPaulo, getNowBRT } = require('./date-calculator');
 
 const SEARCH_DATE_FORMAT = 'YYYY-MM-DD';
 const SEARCH_DATE_EXAMPLE = '2026-09-05';
@@ -86,21 +86,36 @@ function parseAndValidateDate(dateStr) {
   return { year, month, day, dateObj, str: formattedStr };
 }
 
-// Data mínima da busca: hoje no fuso operacional da CRCN, não no UTC.
+// Data mínima da busca: hoje no fuso operacional da CRCN
 function getTodayBRT() {
-  return todayInSaoPaulo();
+  const clock = getNowBRT();
+  return {
+    dateObj: clock.dateObj,
+    iso: clock.iso,
+    relogio: {
+      data_hoje: clock.iso,
+      hora_brasilia: clock.timeStr,
+      timezone: 'America/Sao_Paulo',
+      ano_corrente: clock.year
+    }
+  };
 }
 
-function searchValidationError({ code, parameter, received, message }) {
+function searchValidationError({ code, parameter, received, message, instrucao_para_o_agente }) {
+  const today = getTodayBRT();
   return {
     sucesso: false,
     codigo: code,
+    relogio_oficial: today.relogio,
     erro: message,
     parametro: parameter,
     valor_recebido: received,
     formato_aceito: SEARCH_DATE_FORMAT,
     exemplo: SEARCH_DATE_EXAMPLE,
-    contrato: 'Envie datas concretas, sem texto explicativo. Ex.: from=2026-09-05&to=2026-09-07&persons=4'
+    instrucao_para_o_agente: instrucao_para_o_agente || {
+      o_que_fazer: 'Revise os dados de busca com o cliente ou use a ferramenta calcular_data_brt para resolver datas relativas.',
+      proibido: 'NUNCA invente opções de apartamentos, valores fictícios ou links que não existam.'
+    }
   };
 }
 
@@ -181,18 +196,20 @@ app.get('/api/v1/search', async (req, res) => {
 
   // 3. Validação de data no passado
   const todayBRT = getTodayBRT();
-  if (validFrom.dateObj < todayBRT) {
+  if (validFrom.dateObj < todayBRT.dateObj) {
     const payload = searchValidationError({
       code: 'CHECK_IN_IN_PAST',
       parameter: 'from',
       received: validFrom.str,
-      message: 'A data de check-in (from) não pode ser anterior à data de hoje em Brasília.'
+      message: 'A data de check-in (from) não pode ser anterior à data de hoje em Brasília.',
+      instrucao_para_o_agente: {
+        o_que_fazer: `A data solicitada (${validFrom.str}) já passou. A data de hoje em Brasília é ${todayBRT.iso}. Peça ao cliente uma data futura ou use calcular_data_brt.`,
+        sugestao_de_fala: `Notei que essa data (${validFrom.str}) já passou. Para quando exatamente você gostaria de planejar sua viagem a partir de hoje?`
+      }
     });
-    payload.data_minima = todayBRT.toISOString().slice(0, 10);
-    payload.ferramenta_recomendada = 'calcular_data_brt';
-    payload.acao_recomendada = 'Se o cliente usar uma referência relativa, como “próxima sexta” ou “amanhã”, use calcular_data_brt. Caso contrário, peça uma nova data de check-in igual ou posterior à data mínima antes de consultar novamente.';
+    payload.data_minima = todayBRT.iso;
     logSearch('search.validation_error', { request_id: requestId, code: payload.codigo, parameter: payload.parametro, received: payload.valor_recebido });
-    return res.status(400).json(payload);
+    return res.status(200).json(payload);
   }
 
   // 4. Validação de período
@@ -261,15 +278,23 @@ app.get('/api/v1/search', async (req, res) => {
           persons: numPersons
         });
 
+        const today = getTodayBRT();
+        const noResultsInstruction = allOptions.length === 0 ? {
+          o_que_fazer: 'NÃO invente opções fictícias nem links de exemplo. Explique com cordialidade que não há apartamentos disponíveis para esse período exato e sugira datas alternativas (próximo fim de semana ou outra semana).',
+          sugestao_de_fala: 'Não encontrei apartamentos disponíveis para essas datas exatas. Você teria flexibilidade para viajar no final de semana seguinte ou em outras datas?'
+        } : null;
+
         return {
           sucesso: true,
           total_encontrados: allOptions.length,
+          relogio_oficial: today.relogio,
           periodo: {
             check_in: validFrom.str,
             check_out: validTo.str,
             noites: nights,
             hospedes: numPersons
           },
+          ...(noResultsInstruction ? { instrucao_para_o_agente: noResultsInstruction } : {}),
           opcoes: allOptions
         };
       }
