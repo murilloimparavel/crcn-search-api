@@ -146,6 +146,32 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Relógio oficial de Brasília (sem regex, sem interpretação de texto, sempre HTTP 200 via GET ou POST).
+app.all('/api/v1/date/now', (req, res) => {
+  const now = new Date();
+  const optionsDate = { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' };
+  const optionsTime = { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false };
+  const optionsWeekday = { timeZone: 'America/Sao_Paulo', weekday: 'long' };
+
+  const brDateStr = new Intl.DateTimeFormat('pt-BR', optionsDate).format(now);
+  const [d, m, y] = brDateStr.split('/');
+  const isoDate = `${y}-${m}-${d}`;
+  const timeStr = new Intl.DateTimeFormat('pt-BR', optionsTime).format(now);
+  const weekdayStr = new Intl.DateTimeFormat('pt-BR', optionsWeekday).format(now);
+
+  return res.status(200).json({
+    sucesso: true,
+    data_hoje: isoDate,
+    formato_iso: 'YYYY-MM-DD',
+    data_formatada: `${d}/${m}/${y}`,
+    dia_semana: weekdayStr,
+    hora_brasilia: timeStr,
+    ano_corrente: parseInt(y, 10),
+    timezone: 'America/Sao_Paulo',
+    mensagem: `Hoje é ${weekdayStr}, ${d}/${m}/${y}, às ${timeStr} (Horário Oficial de Brasília).`
+  });
+});
+
 // Resolve expressões relativas de data no fuso de São Paulo para uso por agentes (sempre HTTP 200 via GET ou POST).
 app.all('/api/v1/date/calculate', (req, res) => {
   const expression = req.body?.expression || req.query.expression;
