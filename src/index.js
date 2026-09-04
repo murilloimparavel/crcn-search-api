@@ -159,11 +159,20 @@ app.post('/api/v1/cache/clear', (req, res) => {
   res.json({ success: true, message: 'Cache de pesquisas limpo com sucesso.' });
 });
 
-// Endpoint principal de pesquisa
-app.get('/api/v1/search', async (req, res) => {
+// Endpoint principal de pesquisa (suporta GET e POST para compatibilidade total com o ADK / Evo CRM)
+app.all('/api/v1/search', async (req, res) => {
   const startedAt = Date.now();
   const requestId = req.get('x-request-id') || `${startedAt}-${Math.random().toString(36).slice(2, 8)}`;
-  const { from, to, persons = 2, max_results = 10 } = req.query;
+  
+  const fromRaw = req.body?.from || req.query.from;
+  const toRaw = req.body?.to || req.query.to;
+  const personsRaw = req.body?.persons || req.query.persons || 2;
+  const maxResultsRaw = req.body?.max_results || req.query.max_results || 10;
+
+  const from = typeof fromRaw === 'string' ? fromRaw : (Array.isArray(fromRaw) ? fromRaw[0] : fromRaw);
+  const to = typeof toRaw === 'string' ? toRaw : (Array.isArray(toRaw) ? toRaw[0] : toRaw);
+  const persons = personsRaw;
+  const max_results = maxResultsRaw;
 
   logSearch('search.request', { request_id: requestId, from, to, persons, max_results });
 
