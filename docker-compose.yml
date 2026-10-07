@@ -7,6 +7,13 @@ services:
     environment:
       - PORT=3000
       - NODE_ENV=production
-      - STAYS_REQUEST_TIMEOUT_MS=12000
-      - STAYS_PRICE_CONCURRENCY=3
+      - STAYS_BASE_URL=${STAYS_BASE_URL:-https://crcn.stays.net/external/v1}
+      - STAYS_LOGIN=${STAYS_LOGIN:?Configure STAYS_LOGIN no ambiente}
+      - STAYS_PASSWORD=${STAYS_PASSWORD:?Configure STAYS_PASSWORD no ambiente}
+      - STAYS_REQUEST_TIMEOUT_MS=${STAYS_REQUEST_TIMEOUT_MS:-8000}
+      - IMOB_BASE_URL=${IMOB_BASE_URL:-https://api.cnsp.app/crcn}
+      - IMOB_PUBLIC_BASE_URL=${IMOB_PUBLIC_BASE_URL:-https://reservascrcn.com.br}
+      - IMOB_AUTHORIZATION=${IMOB_AUTHORIZATION:-}
+      - IMOB_REQUEST_TIMEOUT_MS=${IMOB_REQUEST_TIMEOUT_MS:-12000}
+      - IMOB_PRICE_CANDIDATE_LIMIT=${IMOB_PRICE_CANDIDATE_LIMIT:-20}
       - CORS_ORIGINS=https://crm.murilloalves.com.br

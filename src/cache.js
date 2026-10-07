@@ -10,8 +10,8 @@ const options = {
 const searchCache = new LRUCache(options);
 const inFlightRequests = new Map();
 
-function buildKey(from, to, persons, limit = 10) {
-  return `${from}_${to}_${persons}_${limit}`;
+function buildKey(from, to, persons, limit = 3, filters = {}) {
+  return `${from}_${to}_${persons}_${limit}_${JSON.stringify(filters)}`;
 }
 
 function getCachedSearch(from, to, persons) {
@@ -32,8 +32,8 @@ function clearCache() {
 /**
  * Deduplica requisições simultâneas idênticas (Prevenção de Cache Stampede)
  */
-async function fetchWithDeduplication(from, to, persons, limit, fetchFn) {
-  const key = buildKey(from, to, persons, limit);
+async function fetchWithDeduplication(from, to, persons, limit, fetchFn, filters = {}) {
+  const key = buildKey(from, to, persons, limit, filters);
   
   // 1. Se já está no cache, retorna imediatamente
   const cached = searchCache.get(key);

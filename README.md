@@ -4,11 +4,21 @@ Micro-API de busca ao vivo de disponibilidade, flats, diárias, totais e capacid
 
 ## Como a cotação é obtida
 
-A API usa o mesmo fluxo HTTP público do frontend Stays: cria uma sessão anônima, lê a lista JSON de apartamentos e consulta `helpers._correctApartPrice` para cada opção retornada. `valor_total` vem do campo oficial `_t_mctotal.BRL`; ele não é calculado a partir de texto do HTML.
+A API consulta a **Stays External API** com autenticação Basic, usando `POST /booking/search-listings`. O preço oficial vem em `bookingPrice._mctotal`. Para buscas gerais, a Search API avalia até 60 candidatos, paginações de até 20 por chamada, e devolve no máximo três opções diversificadas: prioriza condomínios diferentes e, quando isso não é possível, diferenças de capacidade, quartos, camas e comodidades. A opção mais econômica continua em primeiro lugar; cada opção recebe `tag_sugerida` para orientar a apresentação da Sofia. Em buscas filtradas por propriedade, a diversidade é buscada entre as unidades desse empreendimento.
 
-O resultado é uma consulta atual, sujeita à confirmação no link de reserva. A API mantém cache por três minutos para reduzir chamadas repetidas.
+O endpoint público da Search API continua o mesmo (`POST /api/v1/search`). As credenciais devem ser injetadas pelo ambiente de execução: `STAYS_BASE_URL` (padrão `https://crcn.stays.net/external/v1`), `STAYS_LOGIN` e `STAYS_PASSWORD`. Nunca grave credenciais em arquivos versionados. `STAYS_REQUEST_TIMEOUT_MS` controla timeout por chamada (padrão 8 s). O resultado é uma cotação atual e deve ser confirmada no link de reserva.
 
-Variáveis opcionais: `STAYS_REQUEST_TIMEOUT_MS` (padrão 12000) e `STAYS_PRICE_CONCURRENCY` (padrão 3).
+### Fonte complementar Imob
+
+Opcionalmente, configure `IMOB_AUTHORIZATION` com o valor completo do cabeçalho de autorização fornecido para a API Imob (ex.: esquema `Basic`, sem colocar a credencial no código). `IMOB_BASE_URL` é `https://api.cnsp.app/crcn` por padrão e `IMOB_REQUEST_TIMEOUT_MS` controla o timeout. Sem essa variável, a API continua operando somente com Stays.
+
+A Stays é consultada primeiro. Se a quantidade de opções elegíveis for menor que `max_results`, a API consulta o Imob para preencher o limite. Em uma busca ampla o Imob pede uma opção por condomínio; numa busca de condomínio, o proxy usa os nomes encontrados nos resultados disponíveis para resolver o ID do Imob e repete a consulta filtrada. Opções Imob são convertidas para os mesmos campos das opções Stays e preservam o `linkParceiro`.
+
+O retorno de `listOrcamento` pode não conter preço. Nessa situação, a API usa a chamada de cotação pública observada no próprio site para obter o valor de PIX e preencher `valor_total`/`valor_diaria`; não estima nem inventa preço. `IMOB_PUBLIC_BASE_URL` e `IMOB_PRICE_CANDIDATE_LIMIT` configuram essa etapa. Se a cotação do site falhar, o preço permanece `null` e o erro é registrado sem interromper opções Stays.
+
+Para executar localmente, copie `.env.example` para `.env`, preencha as credenciais localmente e use `npm ci && npm start`. O arquivo `.env` é ignorado pelo Git. O teste de integração `npm test` inicia um servidor temporário em loopback e usa respostas simuladas; não consulta a VPS nem cria reservas.
+
+Detalhes da API e limitações observadas: [`docs/stays-external-api.md`](./docs/stays-external-api.md).
 
 ## Endpoints
 
@@ -16,13 +26,25 @@ Variáveis opcionais: `STAYS_REQUEST_TIMEOUT_MS` (padrão 12000) e `STAYS_PRICE_
 GET /health
 
 ### 2. Busca de Disponibilidade
-GET /api/v1/search?from=YYYY-MM-DD&to=YYYY-MM-DD&persons=2&max_results=10
+POST /api/v1/search
 
 Para integrações e agentes de IA, envie sempre datas concretas no formato canônico `YYYY-MM-DD`, sem texto explicativo dentro dos parâmetros:
 
 ```text
-/api/v1/search?from=2026-09-05&to=2026-09-07&persons=4
+{"from":"2026-09-05","to":"2026-09-07","persons":4,"page":1}
 ```
+
+Opcionalmente, a busca aceita filtros `amenities`/`comodidades`, `inventory`/`inventario`, `properties`/`propriedades`, `cities`/`cidades` e `rooms`/`quartos`. Valores de texto são resolvidos pelo catálogo da conta Stays.
+
+A resposta de `/api/v1/search` inclui até três opções com `tag_sugerida`, `nome`, `condominio`, `valor_total`, `valor_diaria`, `noites`, `capacidade`, quartos, camas, banheiros, destaques/comodidades e `link_reserva`. `page` é opcional e começa em `1`; quando `mais_opcoes_disponiveis` for `true`, solicite a próxima página incrementando `page` e mantenha datas, hóspedes e filtros.
+
+### Ferramentas complementares de leitura
+
+- `GET /api/v1/searchfilters`: catálogo de comodidades, propriedades, cidades, quartos e inventário.
+- `GET /api/v1/properties?q=Thermas`: pesquisa empreendimentos pelo nome.
+- `GET /api/v1/listings/{id}`: detalhes, regras, comodidades e imagens de um anúncio.
+
+`buscar_propriedade_crcn` já está cadastrada para chamar `/api/v1/properties` antes da busca de disponibilidade por hotel. As rotas de catálogo geral (`/api/v1/searchfilters`) e detalhes de anúncio (`/api/v1/listings/{id}`) ainda não estão cadastradas como custom tools. Veja os contratos e o fluxo em [`docs/evocrm-custom-tools.md`](./docs/evocrm-custom-tools.md).
 
 Quando a API receber formato inválido, ela retorna HTTP `400` com `codigo`, `parametro`, `valor_recebido`, `formato_aceito` e um exemplo utilizável. Os logs registram cada consulta com `request_id`, resultado da validação, cache, duração e total de opções retornadas.
 

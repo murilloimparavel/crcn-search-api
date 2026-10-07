@@ -1,6 +1,5 @@
-const DEFAULT_BASE_URL = 'https://www.centraldereservascaldas.com.br';
-const DEFAULT_TIMEOUT_MS = 12_000;
-const DEFAULT_CONCURRENCY = 3;
+const DEFAULT_BASE_URL = 'https://crcn.stays.net/external/v1';
+const DEFAULT_TIMEOUT_MS = 8_000;
 
 class StaysError extends Error {
   constructor(message, { code = 'STAYS_REQUEST_FAILED', status } = {}) {
@@ -11,139 +10,167 @@ class StaysError extends Error {
   }
 }
 
-function getCookies(headers) {
-  const values = typeof headers.getSetCookie === 'function'
-    ? headers.getSetCookie()
-    : [headers.get('set-cookie')].filter(Boolean);
-  return values
-    .flatMap((value) => value.split(/,(?=[^;,\s]+=[^;,\s]+)/))
-    .map((value) => value.split(';', 1)[0].trim())
-    .filter(Boolean)
-    .join('; ');
-}
-
-function parsePublicUid(html) {
-  return html.match(/_user\s*:\s*\{\s*_id:'([^']+)'/)?.[1]
-    || html.match(/_id:'([^']+)'/)?.[1]
-    || null;
-}
-
-function formatStaysDate(date) {
-  return `${date}T12:00:00.000Z`;
-}
-
-async function mapWithConcurrency(items, limit, mapper) {
-  const results = new Array(items.length);
-  let nextIndex = 0;
-  async function worker() {
-    while (nextIndex < items.length) {
-      const index = nextIndex++;
-      results[index] = await mapper(items[index], index);
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-  return results;
-}
-
 class StaysClient {
   constructor({
     baseUrl = process.env.STAYS_BASE_URL || DEFAULT_BASE_URL,
+    login = process.env.STAYS_LOGIN,
+    password = process.env.STAYS_PASSWORD,
     fetchImpl = global.fetch,
-    timeoutMs = Number(process.env.STAYS_REQUEST_TIMEOUT_MS || DEFAULT_TIMEOUT_MS),
-    priceConcurrency = Number(process.env.STAYS_PRICE_CONCURRENCY || DEFAULT_CONCURRENCY)
+    timeoutMs = Number(process.env.STAYS_REQUEST_TIMEOUT_MS || DEFAULT_TIMEOUT_MS)
   } = {}) {
     if (typeof fetchImpl !== 'function') throw new Error('global fetch não está disponível. Use Node.js 18 ou superior.');
     this.baseUrl = baseUrl.replace(/\/$/, '');
+    this.login = login;
+    this.password = password;
     this.fetchImpl = fetchImpl;
     this.timeoutMs = timeoutMs;
-    this.priceConcurrency = Math.max(1, priceConcurrency);
+    this.searchFiltersCache = null;
+    this.searchFiltersExpiresAt = 0;
   }
 
-  buildSearchUrl({ from, to, persons, extra = {} }) {
-    const url = new URL('/pt/search', this.baseUrl);
-    url.search = new URLSearchParams({ from, to, persons: String(persons), ...extra }).toString();
-    return url;
+  get authHeader() {
+    if (!this.login || !this.password) {
+      throw new StaysError('Credenciais da API Stays não configuradas.', { code: 'STAYS_NOT_CONFIGURED' });
+    }
+    return `Basic ${Buffer.from(`${this.login}:${this.password}`).toString('base64')}`;
   }
 
-  async request(url, options = {}) {
+  async request(path, { method = 'GET', query, body } = {}) {
+    const url = new URL(`${this.baseUrl}${path}`);
+    if (query) {
+      for (const [key, value] of Object.entries(query)) {
+        if (value !== undefined && value !== null && value !== '') url.searchParams.set(key, String(value));
+      }
+    }
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
-      const response = await this.fetchImpl(url, { ...options, signal: controller.signal });
+      const response = await this.fetchImpl(url, {
+        method,
+        signal: controller.signal,
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          Authorization: this.authHeader
+        },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) })
+      });
       if (!response.ok) {
         throw new StaysError(`Stays respondeu HTTP ${response.status}.`, {
-          code: response.status === 401 ? 'STAYS_SESSION_EXPIRED' : 'STAYS_HTTP_ERROR',
+          code: response.status === 401 ? 'STAYS_UNAUTHORIZED' : 'STAYS_HTTP_ERROR',
           status: response.status
         });
       }
-      return response;
+      return response.json();
     } catch (error) {
-      if (error.name === 'AbortError') throw new StaysError('A consulta à Stays excedeu o tempo limite.', { code: 'STAYS_TIMEOUT' });
       if (error instanceof StaysError) throw error;
+      if (error.name === 'AbortError') throw new StaysError('A consulta à Stays excedeu o tempo limite.', { code: 'STAYS_TIMEOUT' });
       throw new StaysError(`Falha de rede ao consultar a Stays: ${error.message}`, { code: 'STAYS_NETWORK_ERROR' });
     } finally {
       clearTimeout(timer);
     }
   }
 
-  async createSession({ from, to, persons }) {
-    const response = await this.request(this.buildSearchUrl({ from, to, persons }));
-    const html = await response.text();
-    const cookie = getCookies(response.headers);
-    const uid = parsePublicUid(html);
-    if (!cookie || !uid) throw new StaysError('A Stays não forneceu a sessão pública esperada.', { code: 'STAYS_SESSION_INVALID' });
-    return { cookie, uid };
+  async getSearchFilters() {
+    if (this.searchFiltersCache && Date.now() < this.searchFiltersExpiresAt) return this.searchFiltersCache;
+    this.searchFiltersCache = await this.request('/booking/searchfilter');
+    this.searchFiltersExpiresAt = Date.now() + 5 * 60 * 1000;
+    return this.searchFiltersCache;
   }
 
-  async fetchApartments(session, { from, to, persons, limit }) {
-    const url = this.buildSearchUrl({ from, to, persons, extra: { formaps: '1', start: '0', limit: String(limit) } });
-    const response = await this.request(url, {
-      headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'pok-route-path': ':lang/search', Cookie: session.cookie }
-    });
-    const payload = await response.json();
-    if (!Array.isArray(payload.apartments)) throw new StaysError('A Stays retornou uma busca sem a lista de apartamentos.', { code: 'STAYS_INVALID_SEARCH_RESPONSE' });
-    return payload.apartments;
-  }
-
-  async fetchOfficialPrice(session, apartment, { from, to, persons }) {
-    const searchUrl = this.buildSearchUrl({ from, to, persons }).toString();
-    const response = await this.request(`${this.baseUrl}/jsonrpc`, {
+  async searchListings({ from, to, persons, limit = 20, skip = 0, filters = {} }) {
+    return this.request('/booking/search-listings', {
       method: 'POST',
-      headers: {
-        Accept: 'application/json', 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest',
-        'pok-route-path': ':lang/search', Origin: this.baseUrl, Referer: searchUrl, Cookie: session.cookie
-      },
-      body: JSON.stringify({
-        uid: session.uid,
-        method: 'helpers._correctApartPrice',
-        params: ['', { _id: apartment._id }, formatStaysDate(from), formatStaysDate(to), { persons, channel: 'Website' }]
-      })
+      body: {
+        from,
+        to,
+        guests: persons,
+        skip,
+        limit: Math.min(Math.max(Number(limit) || 20, 1), 20),
+        ...filters
+      }
     });
-    const price = (await response.json()).result?.[0];
-    const valorDiaria = Number(price?._mcprice?.BRL);
-    const valorTotal = Number(price?._t_mctotal?.BRL);
-    if (!Number.isFinite(valorDiaria) || !Number.isFinite(valorTotal)) {
-      throw new StaysError(`A Stays não retornou preço em BRL para ${apartment._id}.`, { code: 'STAYS_INVALID_PRICE_RESPONSE' });
-    }
-    return { valor_diaria: valorDiaria, valor_total: valorTotal };
   }
 
-  async search({ from, to, persons, limit = 10 }) {
-    const run = async () => {
-      const session = await this.createSession({ from, to, persons });
-      const apartments = await this.fetchApartments(session, { from, to, persons, limit });
-      return mapWithConcurrency(apartments, this.priceConcurrency, async (apartment) => ({
-        apartment,
-        price: await this.fetchOfficialPrice(session, apartment, { from, to, persons })
-      }));
-    };
-    try {
-      return await run();
-    } catch (error) {
-      if (error.code !== 'STAYS_SESSION_EXPIRED') throw error;
-      return run();
+  async search({ from, to, persons, limit = 3, skip = 0, filters = {} }) {
+    const pageSize = 20;
+    const results = [];
+    while (results.length < limit) {
+      const page = await this.searchListings({
+        from,
+        to,
+        persons,
+        limit: Math.min(pageSize, limit - results.length),
+        skip: skip + results.length,
+        filters
+      });
+      if (!Array.isArray(page)) {
+        throw new StaysError('A Stays retornou a busca em formato inválido.', { code: 'STAYS_INVALID_SEARCH_RESPONSE' });
+      }
+      results.push(...page);
+      if (page.length < Math.min(pageSize, limit - (results.length - page.length))) break;
     }
+    return results.slice(0, limit);
+  }
+
+  async enrichListings(listings) {
+    const [searchFilters, ...details] = await Promise.all([
+      this.getSearchFilters(),
+      ...listings.map((listing) => this.getListing(listing.id || listing._id).catch(() => listing))
+    ]);
+    const amenityCatalog = searchFilters.amenities || [];
+    return listings.map((listing, index) => {
+      const detail = details[index] || listing;
+      const property = (searchFilters.properties || []).find((item) => item?._id === detail?._idproperty) || null;
+      return { listing, details: detail, property, amenityCatalog };
+    });
+  }
+
+  async getListing(id) {
+    return this.request(`/content/listings/${encodeURIComponent(id)}`);
+  }
+
+  async getProperty(id) {
+    return this.request(`/content/properties/${encodeURIComponent(id)}`);
+  }
+
+  async searchProperties(query = '') {
+    const filters = await this.getSearchFilters();
+    const properties = Array.isArray(filters.properties) ? filters.properties : [];
+    const normalizedQuery = query.trim().toLocaleLowerCase('pt-BR');
+    return properties.filter((property) => {
+      const title = property?._mstitle?.pt_BR || property?.internalName || property?.id || '';
+      return !normalizedQuery || title.toLocaleLowerCase('pt-BR').includes(normalizedQuery);
+    });
+  }
+
+  async resolveSearchFilters({ amenities, inventory, properties, cities, rooms, listingId } = {}) {
+    const hasLabels = [amenities, inventory, properties, cities].some((values) => Array.isArray(values) && values.length > 0);
+    const catalog = hasLabels ? await this.getSearchFilters() : null;
+    const resolve = (values, entries, groupName) => {
+      if (!Array.isArray(values) || !values.length) return undefined;
+      return values.map((value) => {
+        const raw = String(value);
+        const found = (entries || []).find((entry) => {
+          const ids = [entry?._id, entry?.id, entry?.val].filter(Boolean).map(String);
+          const labels = [entry?._mstitle?.pt_BR, entry?._mstitle?.en_US, entry?.internalName, entry?.val].filter(Boolean);
+          return ids.includes(raw) || labels.some((label) => String(label).toLocaleLowerCase('pt-BR') === raw.toLocaleLowerCase('pt-BR'));
+        });
+        if (!found) {
+          throw new StaysError(`Filtro ${groupName} não encontrado no catálogo Stays.`, { code: 'STAYS_FILTER_NOT_FOUND' });
+        }
+        return found._id || found.id || found.val;
+      });
+    };
+    return {
+      ...(resolve(amenities, catalog?.amenities, 'amenities') ? { amenities: resolve(amenities, catalog?.amenities, 'amenities') } : {}),
+      ...(resolve(inventory, catalog?.inventory, 'inventory') ? { inventory: resolve(inventory, catalog?.inventory, 'inventory') } : {}),
+      ...(resolve(properties, catalog?.properties, 'properties') ? { properties: resolve(properties, catalog?.properties, 'properties') } : {}),
+      ...(resolve(cities, catalog?.cities, 'cities') ? { cities: resolve(cities, catalog?.cities, 'cities') } : {}),
+      ...(Array.isArray(rooms) && rooms.length ? { rooms } : {}),
+      ...(listingId ? { listingId: String(listingId) } : {})
+    };
   }
 }
 
-module.exports = { StaysClient, StaysError, parsePublicUid, getCookies, mapWithConcurrency };
+module.exports = { StaysClient, StaysError };
