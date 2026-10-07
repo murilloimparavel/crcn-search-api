@@ -24,10 +24,10 @@ function extractRecords(payload) {
   return [];
 }
 
-function dateToBrazilian(isoDate) {
+function formatImobDate(isoDate) {
   const match = String(isoDate || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) throw new ImobError('Data inválida para consulta Imob.', { code: 'IMOB_INVALID_DATE' });
-  return `${match[3]}/${match[2]}/${match[1]}`;
+  return `${match[1]}-${match[2]}-${match[3]}`;
 }
 
 function normalizePropertyName(value) {
@@ -71,8 +71,8 @@ class ImobClient {
     if (!this.configured) return [];
     const body = {
       rede: true,
-      entrada: dateToBrazilian(from),
-      saida: dateToBrazilian(to),
+      entrada: formatImobDate(from),
+      saida: formatImobDate(to),
       condominio: condominiumId || null,
       qtdeqrts: 'all',
       maxOcupantes: String(persons),
@@ -192,4 +192,4 @@ class ImobClient {
   }
 }
 
-module.exports = { ImobClient, ImobError, extractRecords, dateToBrazilian, normalizePropertyName, extractPixPrice };
+module.exports = { ImobClient, ImobError, extractRecords, formatImobDate, normalizePropertyName, extractPixPrice };

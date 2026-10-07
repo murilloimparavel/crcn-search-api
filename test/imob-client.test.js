@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict');
-const { ImobClient, dateToBrazilian, normalizePropertyName, extractPixPrice } = require('../src/imob-client');
+const { ImobClient, formatImobDate, normalizePropertyName, extractPixPrice } = require('../src/imob-client');
 
 async function testRequestContractAndAuthentication() {
   let call;
@@ -17,8 +17,8 @@ async function testRequestContractAndAuthentication() {
   assert.equal(call.options.headers.Authorization, 'Basic test-secret');
   assert.deepEqual(JSON.parse(call.options.body), {
     rede: true,
-    entrada: '16/10/2026',
-    saida: '19/10/2026',
+    entrada: '2026-10-16',
+    saida: '2026-10-19',
     condominio: null,
     qtdeqrts: 'all',
     maxOcupantes: '8',
@@ -31,7 +31,7 @@ async function testRequestContractAndAuthentication() {
     bebidas: false
   });
   assert.equal(records[0].nomeCond, 'Lagoa Quente Flat Service');
-  assert.equal(dateToBrazilian('2026-10-16'), '16/10/2026');
+  assert.equal(formatImobDate('2026-10-16'), '2026-10-16');
   assert.equal(normalizePropertyName('Lagoa Quente Flat Service'), 'lagoa quente flat service');
 }
 
