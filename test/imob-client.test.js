@@ -22,7 +22,7 @@ async function testRequestContractAndAuthentication() {
     condominio: null,
     qtdeqrts: 'all',
     maxOcupantes: '8',
-    maxPax: true,
+    maxPax: false,
     addCrianca: false,
     umCada: true,
     entradaAntecipada: 'all',

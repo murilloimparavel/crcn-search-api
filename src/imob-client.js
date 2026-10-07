@@ -76,7 +76,7 @@ class ImobClient {
       condominio: condominiumId || null,
       qtdeqrts: 'all',
       maxOcupantes: String(persons),
-      maxPax: true,
+      maxPax: false,
       addCrianca: false,
       umCada: Boolean(onePerCondominium),
       entradaAntecipada: 'all',
