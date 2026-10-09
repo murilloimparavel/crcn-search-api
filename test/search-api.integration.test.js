@@ -103,7 +103,7 @@ async function main() {
   assert.equal(payload.sucesso, true);
   assert.deepEqual(Object.keys(payload).sort(), [
     'filtros_aplicados', 'mais_opcoes_disponiveis', 'opcoes', 'opcoes_retornadas',
-    'periodo', 'relogio_oficial', 'sucesso', 'tempo_resposta_ms', 'total_encontrados', 'total_exato'
+    'periodo', 'proxima_pagina', 'relogio_oficial', 'sucesso', 'tempo_resposta_ms', 'total_encontrados', 'total_exato'
   ].sort());
   assert.equal(payload.opcoes.length, 3);
   assert.match(payload.opcoes[0].id, /^STAY-/);
@@ -147,8 +147,33 @@ async function main() {
   assert.ok(imobFilteredPayload.opcoes.length >= 1);
   assert.equal(imobFilteredPayload.opcoes[0].condominio, 'Golden Dolphin Supreme');
 
+  // Teste 5: Paginação sequencial disjunta (page 1 vs page 2)
+  const page1Res = await nativeFetch(`${baseUrl}/api/v1/search`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from: '2026-11-01', to: '2026-11-03', persons: 4, max_results: 1, page: 1 })
+  });
+  const page1Data = await page1Res.json();
+  assert.equal(page1Data.opcoes.length, 1);
+  assert.equal(page1Data.mais_opcoes_disponiveis, true);
+  assert.equal(page1Data.proxima_pagina, 2);
+
+  const page2Res = await nativeFetch(`${baseUrl}/api/v1/search`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from: '2026-11-01', to: '2026-11-03', persons: 4, max_results: 1, page: 2 })
+  });
+  const page2Data = await page2Res.json();
+  assert.equal(page2Data.opcoes.length, 1);
+  assert.notEqual(page1Data.opcoes[0].id, page2Data.opcoes[0].id);
+
+  // Teste 6: Consulta de acomodação por ID numérico do Imob
+  const listingImobRes = await nativeFetch(`${baseUrl}/api/v1/listings/135`);
+  const listingImobData = await listingImobRes.json();
+  assert.equal(listingImobRes.status, 200);
+  assert.equal(listingImobData.sucesso, true);
+  assert.equal(listingImobData.acomodacao.nome, 'Golden Dolphin Supreme');
+
   console.log('search-api integration: local endpoint preserves response option shape and supplements only when needed');
-  console.log('search-api integration: property lookup and imob-only resolution verified successfully');
+  console.log('search-api integration: property lookup, imob resolution, pagination and numeric listings verified successfully');
   process.exit(0);
 }
 

@@ -20,9 +20,18 @@ function priceNumber(value) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
+function isAllowedBookingHost(urlString) {
+  try {
+    const parsed = new URL(urlString);
+    return ['reservascrcn.com.br', 'www.reservascrcn.com.br', 'centraldereservascaldas.com.br', 'www.centraldereservascaldas.com.br'].includes(parsed.hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
 function buildImobBookingLink(record, { from, to, persons }) {
   const provided = firstValue(record, ['linkParceiro', 'link_parceiro', 'linkReserva', 'link_reserva']);
-  if (typeof provided === 'string' && /^https:\/\//i.test(provided)) return provided;
+  if (typeof provided === 'string' && isAllowedBookingHost(provided)) return provided;
   const id = firstValue(record, ['id', 'idImovel', 'id_imovel']);
   if (!id) return null;
   const format = (date) => {

@@ -2,16 +2,22 @@ const { LRUCache } = require('lru-cache');
 
 const options = {
   max: 500, // Máximo de 500 buscas cacheadas
-  ttl: 1000 * 60 * 3, // Cotação/dados de disponibilidade mudam rapidamente.
+  ttl: 1000 * 60 * 3, // Cotação/dados de disponibilidade mudam rapidamente (3 min)
   allowStale: false,
-  updateAgeOnGet: true
+  updateAgeOnGet: false
 };
 
 const searchCache = new LRUCache(options);
 const inFlightRequests = new Map();
 
 function buildKey(from, to, persons, limit = 3, filters = {}) {
-  return `${from}_${to}_${persons}_${limit}_${JSON.stringify(filters)}`;
+  const sortedFilters = Object.keys(filters || {})
+    .sort()
+    .reduce((acc, k) => {
+      acc[k] = filters[k];
+      return acc;
+    }, {});
+  return `${from}_${to}_${persons}_${limit}_${JSON.stringify(sortedFilters)}`;
 }
 
 function getCachedSearch(from, to, persons) {

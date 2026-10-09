@@ -45,7 +45,7 @@ app.use((req, res, next) => {
   }
   next();
 });
-app.use(express.json({ type: ['application/json', '*/*'] }));
+app.use(express.json({ limit: '100kb', type: ['application/json', '*/*'] }));
 
 // Validador e normalizador flexível de datas
 function parseAndValidateDate(dateStr) {
@@ -203,7 +203,8 @@ app.post('/api/v1/cache/clear', (req, res) => {
     return res.status(401).json({ sucesso: false, erro: 'Não autorizado.' });
   }
   clearCache();
-  res.json({ success: true, message: 'Cache de pesquisas limpo com sucesso.' });
+  imobClient.clearCache();
+  res.json({ success: true, message: 'Cache de pesquisas e cotações limpo com sucesso.' });
 });
 
 function parseList(value) {
@@ -272,9 +273,38 @@ app.get('/api/v1/properties', async (req, res) => {
 
 // Detalhes ricos de uma acomodação específica, sem iniciar checkout ou criar reserva.
 app.get('/api/v1/listings/:id', async (req, res) => {
+  const targetId = req.params.id;
+  const isNumeric = /^\d+$/.test(targetId);
+
+  // Se for ID numérico (Imob), busca no catálogo de condomínios
+  if (isNumeric) {
+    const imobCondo = propertyCatalog.allImobCondominiums.find((item) => String(item.id) === targetId);
+    if (imobCondo) {
+      return res.json({
+        sucesso: true,
+        acomodacao: {
+          id: String(imobCondo.id),
+          nome: imobCondo.nome,
+          propriedade: imobCondo.nome,
+          cidade: imobCondo.cidade,
+          capacidade: null,
+          quartos: null,
+          camas: null,
+          banheiros: null,
+          descricao: imobCondo.descricao,
+          regras: '',
+          comodidades: imobCondo.comodidades,
+          imagem_principal: null,
+          imagens: [],
+          link_base: `https://reservascrcn.com.br/parceiro/1/${encodeURIComponent(imobCondo.id)}`
+        }
+      });
+    }
+  }
+
   try {
     const [listing, filters] = await Promise.all([
-      staysClient.getListing(req.params.id),
+      staysClient.getListing(targetId),
       staysClient.getSearchFilters()
     ]);
     const property = listing?._idproperty ? await staysClient.getProperty(listing._idproperty).catch(() => null) : null;
@@ -282,7 +312,7 @@ app.get('/api/v1/listings/:id', async (req, res) => {
     return res.json({
       sucesso: true,
       acomodacao: {
-        id: listing?.id || req.params.id,
+        id: listing?.id || targetId,
         nome: getTitle(listing),
         propriedade: cleanText(property?._mstitle?.pt_BR || property?.internalName || ''),
         cidade: cleanText(listing?.address?.city || property?.address?.city || ''),
@@ -295,7 +325,7 @@ app.get('/api/v1/listings/:id', async (req, res) => {
         comodidades: getAmenityNames(listing, filters.amenities),
         imagem_principal: listing?._t_mainImageMeta?.url || null,
         imagens: images.slice(0, 20),
-        link_base: `https://www.centraldereservascaldas.com.br/pt/apartment/${encodeURIComponent(listing?.id || req.params.id)}`
+        link_base: `https://www.centraldereservascaldas.com.br/pt/apartment/${encodeURIComponent(listing?.id || targetId)}`
       }
     });
   } catch (error) {
@@ -487,27 +517,55 @@ app.all('/api/v1/search', async (req, res) => {
           _candidate_offset: candidateWindowOffset,
           _candidate_limit: CANDIDATE_SEARCH_LIMIT
         };
-        const { data: listings } = await fetchWithDeduplication(
-          validFrom.str,
-          validTo.str,
-          numPersons,
-          CANDIDATE_SEARCH_LIMIT,
-          () => staysPropertyNotFound ? Promise.resolve([]) : staysClient.search({
-              from: validFrom.str,
-              to: validTo.str,
-              persons: numPersons,
-              limit: CANDIDATE_SEARCH_LIMIT,
-              skip: candidateWindowOffset,
-              filters: searchFilters
-            }),
-          candidateCacheFilters
-        );
+        let staysFailed = false;
+        let listings = [];
+        if (!staysPropertyNotFound) {
+          try {
+            const cachedStays = await fetchWithDeduplication(
+              validFrom.str,
+              validTo.str,
+              numPersons,
+              CANDIDATE_SEARCH_LIMIT,
+              () => staysClient.search({
+                from: validFrom.str,
+                to: validTo.str,
+                persons: numPersons,
+                limit: CANDIDATE_SEARCH_LIMIT,
+                skip: candidateWindowOffset,
+                filters: searchFilters
+              }),
+              candidateCacheFilters
+            );
+            listings = cachedStays.data || [];
+          } catch (staysErr) {
+            logSearch('search.stays_failure_fallback_to_imob', {
+              request_id: requestId,
+              error: staysErr.message,
+              code: staysErr.code
+            });
+            staysFailed = true;
+            listings = [];
+            if (!imobClient.configured) throw staysErr;
+          }
+        }
+
         const orderedListings = selectDiverseListings(listings, listings.length, {
           preferDifferentProperties: filterInput.properties.length === 0
         });
         let imobRecords = [];
         let fallbackWarning = null;
-        if (imobClient.configured && (staysPropertyNotFound || orderedListings.length < offsetWithinWindow + limitResults)) {
+        if (staysFailed) {
+          fallbackWarning = {
+            codigo: 'STAYS_UPSTREAM_UNAVAILABLE',
+            mensagem: 'O inventário oficial da Stays está temporariamente indisponível. Exibindo opções parceiras.'
+          };
+        }
+        // Consulta Imob como contingência caso Stays falhe, propriedade seja exclusiva Imob, ou faltem opções para preencher a janela solicitada
+        const needsImobSupplement = staysPropertyNotFound || staysFailed ||
+          orderedListings.length < offsetWithinWindow + limitResults ||
+          (!filterInput.properties.length && orderedListings.length < 3);
+
+        if (imobClient.configured && needsImobSupplement) {
           try {
             imobRecords = imobQueryTarget
               ? await imobClient.searchForProperty({
@@ -624,6 +682,7 @@ app.all('/api/v1/search', async (req, res) => {
           total_exato: listings.length < CANDIDATE_SEARCH_LIMIT,
           opcoes_retornadas: allOptions.length,
           mais_opcoes_disponiveis: hasMore,
+          proxima_pagina: hasMore ? page + 1 : null,
           relogio_oficial: today.relogio,
           periodo: {
             check_in: validFrom.str,
@@ -669,6 +728,17 @@ app.all('/api/v1/search', async (req, res) => {
     });
     return publicError(res, error);
   }
+});
+
+// Middleware global de captura de erros não tratados do Express
+app.use((err, req, res, next) => {
+  console.error('[crcn-search-api] Erro interno não tratado:', err);
+  if (res.headersSent) return next(err);
+  res.status(500).json({
+    sucesso: false,
+    codigo: 'INTERNAL_SERVER_ERROR',
+    erro: 'Ocorreu um erro interno inesperado no servidor.'
+  });
 });
 
 const server = app.listen(PORT, '0.0.0.0', () => {

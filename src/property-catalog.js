@@ -52,6 +52,8 @@ const IMOB_KNOWN_CONDOMINIUMS = [
   }
 ];
 
+const STOP_WORDS = new Set(['hotel', 'condominio', 'flat', 'service', 'resort', 'spa', 'termas', 'thermas', 'do', 'da', 'dos', 'das', 'de', 'e', 'o', 'a']);
+
 function normalizeLookupKey(value) {
   return String(value || '')
     .normalize('NFD')
@@ -59,6 +61,36 @@ function normalizeLookupKey(value) {
     .toLocaleLowerCase('pt-BR')
     .replace(/[^a-z0-9]+/g, ' ')
     .trim();
+}
+
+function extractDistinctiveTokens(text) {
+  const norm = normalizeLookupKey(text);
+  if (!norm) return [];
+  return norm.split(/\s+/).filter(t => t.length > 2 && !STOP_WORDS.has(t));
+}
+
+function calculateMatchScore(textA, textB) {
+  const normA = normalizeLookupKey(textA);
+  const normB = normalizeLookupKey(textB);
+  if (!normA || !normB) return 0;
+  if (normA === normB) return 1.0;
+
+  const tokensA = extractDistinctiveTokens(normA);
+  const tokensB = extractDistinctiveTokens(normB);
+
+  if (!tokensA.length || !tokensB.length) {
+    return normA.includes(normB) || normB.includes(normA) ? 0.7 : 0;
+  }
+
+  const setA = new Set(tokensA);
+  const setB = new Set(tokensB);
+  const common = tokensA.filter(t => setB.has(t));
+  if (!common.length) return 0;
+
+  // Jaccard similarity: intersection / union
+  const union = new Set([...tokensA, ...tokensB]);
+  const score = common.length / union.size;
+  return score;
 }
 
 class PropertyCatalog {
@@ -125,8 +157,7 @@ class PropertyCatalog {
 
       // Verifica se existe correspondente conhecido no Imob
       const matchedImob = this.allImobCondominiums.find((imob) => {
-        const imobNorm = normalizeLookupKey(imob.nome);
-        return imobNorm.includes(normalizedName) || normalizedName.includes(imobNorm);
+        return calculateMatchScore(imob.nome, name) >= 0.6;
       });
 
       results.push({
@@ -146,11 +177,12 @@ class PropertyCatalog {
     // 2. Busca no catálogo Imob (para condomínios que a Stays não tem)
     for (const imob of this.allImobCondominiums) {
       const imobNorm = normalizeLookupKey(imob.nome);
-      if (!normalizedQuery || imobNorm.includes(normalizedQuery) || normalizedQuery.includes(imobNorm)) {
+      const isSubstring = normalizedQuery && (imobNorm.includes(normalizedQuery) || normalizedQuery.includes(imobNorm));
+      const matchScore = normalizedQuery ? calculateMatchScore(imob.nome, query) : 1;
+      if (!normalizedQuery || isSubstring || matchScore >= 0.4) {
         // Se já foi incluído via Stays, não duplica
         const alreadyIncluded = results.some((item) => {
-          const itemNorm = normalizeLookupKey(item.nome);
-          return itemNorm.includes(imobNorm) || imobNorm.includes(itemNorm);
+          return calculateMatchScore(item.nome, imob.nome) >= 0.6;
         });
 
         if (!alreadyIncluded) {
@@ -203,11 +235,12 @@ class PropertyCatalog {
         const filters = await this.staysClient.getSearchFilters().catch(() => null);
         const staysList = Array.isArray(filters?.properties) ? filters.properties : [];
 
-        // Match por ID ou por Nome
+        // Match por ID ou por similaridade de Nome
         const matchedStays = staysList.find((p) => {
           const idMatch = String(p?._id || p?.id || '') === raw;
-          const nameNorm = normalizeLookupKey(p?._mstitle?.pt_BR || p?.internalName || '');
-          return idMatch || (normalized && (nameNorm === normalized || nameNorm.includes(normalized) || normalized.includes(nameNorm)));
+          if (idMatch) return true;
+          const pName = p?._mstitle?.pt_BR || p?.internalName || '';
+          return calculateMatchScore(pName, raw) >= 0.6;
         });
 
         if (matchedStays) {
@@ -219,10 +252,9 @@ class PropertyCatalog {
     }
 
     // 3. Busca correspondente no Imob
-    const matchLookup = staysName ? normalizeLookupKey(staysName) : normalized;
+    const matchLookup = staysName || raw;
     const matchedImob = this.allImobCondominiums.find((imob) => {
-      const imobNorm = normalizeLookupKey(imob.nome);
-      return imobNorm === matchLookup || imobNorm.includes(matchLookup) || matchLookup.includes(imobNorm);
+      return calculateMatchScore(imob.nome, matchLookup) >= 0.6;
     });
 
     if (staysId && matchedImob) {
@@ -273,5 +305,7 @@ class PropertyCatalog {
 module.exports = {
   PropertyCatalog,
   normalizeLookupKey,
+  calculateMatchScore,
+  extractDistinctiveTokens,
   IMOB_KNOWN_CONDOMINIUMS
 };

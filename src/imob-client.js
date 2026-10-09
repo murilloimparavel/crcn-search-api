@@ -1,6 +1,9 @@
+const { LRUCache } = require('lru-cache');
+
 const DEFAULT_BASE_URL = 'https://api.cnsp.app/crcn';
 const DEFAULT_PUBLIC_BASE_URL = 'https://reservascrcn.com.br';
 const DEFAULT_TIMEOUT_MS = 12_000;
+const DEFAULT_PRICE_TIMEOUT_MS = 5_000;
 
 class ImobError extends Error {
   constructor(message, { code = 'IMOB_REQUEST_FAILED', status } = {}) {
@@ -52,7 +55,8 @@ class ImobClient {
     publicBaseUrl = process.env.IMOB_PUBLIC_BASE_URL || DEFAULT_PUBLIC_BASE_URL,
     authorization = process.env.IMOB_AUTHORIZATION,
     fetchImpl = global.fetch,
-    timeoutMs = Number(process.env.IMOB_REQUEST_TIMEOUT_MS || DEFAULT_TIMEOUT_MS)
+    timeoutMs = Number(process.env.IMOB_REQUEST_TIMEOUT_MS || DEFAULT_TIMEOUT_MS),
+    priceTimeoutMs = DEFAULT_PRICE_TIMEOUT_MS
   } = {}) {
     if (typeof fetchImpl !== 'function') throw new Error('global fetch não está disponível. Use Node.js 18 ou superior.');
     this.baseUrl = baseUrl.replace(/\/$/, '');
@@ -60,7 +64,18 @@ class ImobClient {
     this.authorization = authorization;
     this.fetchImpl = fetchImpl;
     this.timeoutMs = timeoutMs;
-    this.quoteCache = new Map();
+    this.priceTimeoutMs = priceTimeoutMs;
+    this.quoteCache = new LRUCache({
+      max: 1000,
+      ttl: 15 * 60 * 1000, // 15 minutos
+      allowStale: false
+    });
+    this.inFlightQuotes = new Map();
+  }
+
+  clearCache() {
+    this.quoteCache.clear();
+    this.inFlightQuotes.clear();
   }
 
   get configured() {
@@ -158,42 +173,53 @@ class ImobClient {
     if (!listingId) return null;
     const cacheKey = `${listingId}|${from}|${to}|${persons}`;
     if (this.quoteCache.has(cacheKey)) return this.quoteCache.get(cacheKey);
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
-    try {
-      const form = new URLSearchParams({
-        Ajax: 'Ajax',
-        Controller: 'parceiro',
-        periodo: `${from},${to}`,
-        action: 'buscaPrecos',
-        e1: '0',
-        s1: String(persons),
-        condId: '',
-        ImovRef: String(listingId),
-        BaseConsulta: '1',
-        ID_ORCA: ''
-      });
-      const response = await this.fetchImpl(this.publicBaseUrl + '/', {
-        method: 'POST',
-        signal: controller.signal,
-        headers: {
-          Accept: 'text/html, */*;q=0.8',
-          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-          'X-Requested-With': 'XMLHttpRequest'
-        },
-        body: form.toString()
-      });
-      if (!response.ok) throw new ImobError(`Site de cotação Imob respondeu HTTP ${response.status}.`, { code: 'IMOB_PRICE_HTTP_ERROR', status: response.status });
-      const amount = extractPixPrice(await response.text());
-      this.quoteCache.set(cacheKey, amount);
-      return amount;
-    } catch (error) {
-      if (error instanceof ImobError) throw error;
-      if (error.name === 'AbortError') throw new ImobError('A cotação de preço Imob excedeu o tempo limite.', { code: 'IMOB_PRICE_TIMEOUT' });
-      throw new ImobError('Falha de rede ao consultar preço no site Imob.', { code: 'IMOB_PRICE_NETWORK_ERROR' });
-    } finally {
-      clearTimeout(timer);
+
+    if (this.inFlightQuotes.has(cacheKey)) {
+      return this.inFlightQuotes.get(cacheKey);
     }
+
+    const quotePromise = (async () => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), this.priceTimeoutMs);
+      try {
+        const form = new URLSearchParams({
+          Ajax: 'Ajax',
+          Controller: 'parceiro',
+          periodo: `${from},${to}`,
+          action: 'buscaPrecos',
+          e1: '0',
+          s1: String(persons),
+          condId: '',
+          ImovRef: String(listingId),
+          BaseConsulta: '1',
+          ID_ORCA: ''
+        });
+        const response = await this.fetchImpl(this.publicBaseUrl + '/', {
+          method: 'POST',
+          signal: controller.signal,
+          headers: {
+            Accept: 'text/html, */*;q=0.8',
+            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+            'X-Requested-With': 'XMLHttpRequest'
+          },
+          body: form.toString()
+        });
+        if (!response.ok) throw new ImobError(`Site de cotação Imob respondeu HTTP ${response.status}.`, { code: 'IMOB_PRICE_HTTP_ERROR', status: response.status });
+        const amount = extractPixPrice(await response.text());
+        this.quoteCache.set(cacheKey, amount);
+        return amount;
+      } catch (error) {
+        if (error instanceof ImobError) throw error;
+        if (error.name === 'AbortError') throw new ImobError('A cotação de preço Imob excedeu o tempo limite.', { code: 'IMOB_PRICE_TIMEOUT' });
+        throw new ImobError('Falha de rede ao consultar preço no site Imob.', { code: 'IMOB_PRICE_NETWORK_ERROR' });
+      } finally {
+        clearTimeout(timer);
+        this.inFlightQuotes.delete(cacheKey);
+      }
+    })();
+
+    this.inFlightQuotes.set(cacheKey, quotePromise);
+    return quotePromise;
   }
 }
 

@@ -55,8 +55,12 @@ async function testPropertyCatalog() {
   assert.equal(resolvedNumeric.type, 'imob_only');
   assert.equal(resolvedNumeric.imobId, '135');
 
-  // 5. Normalização de chave
+  // 5. Normalização de chave e score de similaridade
   assert.equal(normalizeLookupKey('CRCN - Eldorado Thermas Park!'), 'crcn eldorado thermas park');
+  const { calculateMatchScore } = require('../src/property-catalog');
+  assert.ok(calculateMatchScore('Golden Dolphin Supreme', 'Golden Dolphin Supreme') > 0.9);
+  assert.ok(calculateMatchScore('Golden Dolphin Supreme', 'Golden Dolphin Grand Hotel') < 0.6); // Diferencia hotéis distintos
+  assert.ok(calculateMatchScore('Thermas Place', 'Thermas Place Flat') > 0.6);
 
   console.log('property-catalog: all tests passed');
 }
