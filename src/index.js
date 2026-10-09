@@ -501,6 +501,7 @@ app.all('/api/v1/search', async (req, res) => {
           preferDifferentProperties: filterInput.properties.length === 0
         });
         let imobRecords = [];
+        let fallbackWarning = null;
         if (imobClient.configured && orderedListings.length < offsetWithinWindow + limitResults) {
           try {
             imobRecords = filterInput.properties.length
@@ -517,6 +518,12 @@ app.all('/api/v1/search', async (req, res) => {
                   onePerCondominium: true
                 });
           } catch (error) {
+            if (error.code === 'IMOB_TARIFF_UNAVAILABLE') {
+              fallbackWarning = {
+                codigo: error.code,
+                mensagem: 'A parceira complementar não tem tarifário disponível para esse período.'
+              };
+            }
             logSearch('search.imob_error', {
               request_id: requestId,
               code: error.code || 'IMOB_REQUEST_FAILED'
@@ -604,6 +611,7 @@ app.all('/api/v1/search', async (req, res) => {
           },
           filtros_aplicados: searchFilters,
           ...(noResultsInstruction ? { instrucao_para_o_agente: noResultsInstruction } : {}),
+          ...(fallbackWarning ? { avisos: [fallbackWarning] } : {}),
           opcoes: allOptions
         };
       },

@@ -105,7 +105,12 @@ class ImobClient {
       }
       const payload = await response.json();
       if (payload?.erro || payload?.error) {
-        const message = String(payload.erro || payload.error);
+        const message = String(payload.message || payload.erro || payload.error);
+        if (/tarif[aá]rio\s+n[aã]o\s+dispon[ií]vel\s+para\s+essa\s+data/i.test(message)) {
+          throw new ImobError('A parceira Imob não tem tarifário disponível para esse período.', {
+            code: 'IMOB_TARIFF_UNAVAILABLE'
+          });
+        }
         if (/nenhum im[oó]vel|sem disponibilidade|n[aã]o encontrado/i.test(message)) return [];
         throw new ImobError('A API Imob recusou a consulta.', { code: 'IMOB_API_ERROR' });
       }
