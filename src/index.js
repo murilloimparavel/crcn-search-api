@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const { StaysClient } = require('./stays-client');
 const { ImobClient } = require('./imob-client');
+const { PropertyCatalog } = require('./property-catalog');
 const { normalizeImobListing } = require('./imob-normalizer');
 const { processAndRankResults, selectDiverseListings, assignSuggestedTags, normalizeProperty, getAmenityNames, getTitle, cleanText } = require('./normalizer');
 const { fetchWithDeduplication, clearCache } = require('./cache');
@@ -24,6 +25,7 @@ const PORT = process.env.PORT || 3000;
 const isProduction = process.env.NODE_ENV === 'production';
 const staysClient = new StaysClient();
 const imobClient = new ImobClient();
+const propertyCatalog = new PropertyCatalog({ staysClient, imobClient });
 const allowedOrigins = (process.env.CORS_ORIGINS || '')
   .split(',')
   .map((origin) => origin.trim())
@@ -252,20 +254,15 @@ app.get('/api/v1/searchfilters', async (req, res) => {
   }
 });
 
-// Pesquisa um empreendimento pelo nome sem depender de datas de hospedagem.
+// Pesquisa um empreendimento pelo nome sem depender de datas de hospedagem (Stays + Imob).
 app.get('/api/v1/properties', async (req, res) => {
   try {
     const query = String(req.query.q || req.query.query || '').trim();
     if (!query) return res.status(400).json({ sucesso: false, codigo: 'MISSING_PROPERTY_QUERY', erro: 'Informe parte do nome da propriedade em q.' });
-    const found = await staysClient.searchProperties(query);
-    const filters = await staysClient.getSearchFilters();
-    const enriched = await Promise.all(found.slice(0, 5).map(async (property) => {
-      const detail = await staysClient.getProperty(property?._id || property?.id).catch(() => property);
-      return normalizeProperty(detail, { amenityCatalog: filters.amenities || [] });
-    }));
+    const enriched = await propertyCatalog.searchProperties(query);
     return res.json({
       sucesso: true,
-      total_encontrados: found.length,
+      total_encontrados: enriched.length,
       propriedades: enriched
     });
   } catch (error) {
@@ -441,26 +438,34 @@ app.all('/api/v1/search', async (req, res) => {
   try {
     const startTime = Date.now();
 
-    // 6. Busca com cache e prevenção de Cache Stampede (Thundering Herd)
+    // 6. Busca com cache e resolução unificada de propriedade (Stays + Imob)
     let staysPropertyNotFound = false;
-    let searchFilters;
-    try {
-      searchFilters = await staysClient.resolveSearchFilters(filterInput);
-    } catch (error) {
-      if (error.code !== 'STAYS_FILTER_NOT_FOUND' || filterInput.properties.length === 0) throw error;
-      // O nome/ID pode existir só no catálogo de parceiros. Nesse caso não
-      // removemos o filtro e mostramos outros condomínios da Stays por engano.
-      staysPropertyNotFound = true;
-      searchFilters = await staysClient.resolveSearchFilters({ ...filterInput, properties: [] });
+    let searchFilters = {};
+    let resolvedProperty = null;
+
+    if (filterInput.properties.length > 0) {
+      resolvedProperty = await propertyCatalog.resolvePropertyFilter(filterInput.properties[0]);
     }
-    const imobPropertyNames = await Promise.all(filterInput.properties.map(async (requestedName) => {
-      if (!/^\d+$/.test(requestedName)) return requestedName;
-      const staysFilters = await staysClient.getSearchFilters().catch(() => null);
-      const property = (staysFilters?.properties || []).find((item) =>
-        String(item?._id || item?.id || '') === requestedName
-      );
-      return property?._mstitle?.pt_BR || property?.internalName || requestedName;
-    }));
+
+    if (resolvedProperty?.type === 'imob_only') {
+      staysPropertyNotFound = true;
+      searchFilters = {};
+    } else {
+      try {
+        const staysInputProperties = resolvedProperty?.staysFilter || filterInput.properties;
+        searchFilters = await staysClient.resolveSearchFilters({
+          ...filterInput,
+          properties: staysInputProperties
+        });
+      } catch (error) {
+        if (error.code !== 'STAYS_FILTER_NOT_FOUND' || filterInput.properties.length === 0) throw error;
+        staysPropertyNotFound = true;
+        searchFilters = await staysClient.resolveSearchFilters({ ...filterInput, properties: [] });
+      }
+    }
+
+    const imobQueryTarget = resolvedProperty?.imobId || resolvedProperty?.imobName || (filterInput.properties.length ? filterInput.properties[0] : null);
+
     const cacheFilters = {
       ...searchFilters,
       _requested_property: filterInput.properties,
@@ -502,21 +507,24 @@ app.all('/api/v1/search', async (req, res) => {
         });
         let imobRecords = [];
         let fallbackWarning = null;
-        if (imobClient.configured && orderedListings.length < offsetWithinWindow + limitResults) {
+        if (imobClient.configured && (staysPropertyNotFound || orderedListings.length < offsetWithinWindow + limitResults)) {
           try {
-            imobRecords = filterInput.properties.length
-              ? (await Promise.all(imobPropertyNames.map((propertyName) => imobClient.searchForProperty({
+            imobRecords = imobQueryTarget
+              ? await imobClient.searchForProperty({
                   from: validFrom.str,
                   to: validTo.str,
                   persons: numPersons,
-                  propertyName
-                })))).flat()
+                  propertyName: imobQueryTarget
+                })
               : await imobClient.search({
                   from: validFrom.str,
                   to: validTo.str,
                   persons: numPersons,
                   onePerCondominium: true
                 });
+
+            // Registra dinamicamente no catálogo para próximas pesquisas
+            imobRecords.forEach((record) => propertyCatalog.registerDiscoveredImob(record));
           } catch (error) {
             if (error.code === 'IMOB_TARIFF_UNAVAILABLE') {
               fallbackWarning = {
@@ -538,30 +546,8 @@ app.all('/api/v1/search', async (req, res) => {
           nights,
           page
         };
-        imobRecords = await Promise.all(imobRecords.map(async (record, index) => {
-          if (index >= IMOB_PRICE_CANDIDATE_LIMIT) return record;
-          const current = normalizeImobListing(record, nightsCriteria);
-          if (current.valor_total || !record?.id) return record;
-          try {
-            const pixPrice = await imobClient.getPixPrice({
-              listingId: record.id,
-              from: validFrom.str,
-              to: validTo.str,
-              persons: numPersons
-            });
-            return pixPrice ? { ...record, valorTotal: pixPrice } : record;
-          } catch (error) {
-            logSearch('search.imob_price_error', {
-              request_id: requestId,
-              code: error.code || 'IMOB_PRICE_REQUEST_FAILED'
-            });
-            return record;
-          }
-        }));
-        const selectedListings = orderedListings.slice(offsetWithinWindow, offsetWithinWindow + limitResults);
-        const enrichedListings = selectedListings.length ? await staysClient.enrichListings(selectedListings) : [];
-        const staysOptions = processAndRankResults(enrichedListings, nightsCriteria);
-        const imobOptions = [];
+
+        const imobCandidates = [];
         const seenImob = new Set();
         for (const record of imobRecords) {
           const option = normalizeImobListing(record, nightsCriteria);
@@ -569,17 +555,53 @@ app.all('/api/v1/search', async (req, res) => {
           const identity = `${option.id || ''}|${option.link_reserva}`;
           if (seenImob.has(identity)) continue;
           seenImob.add(identity);
-          imobOptions.push(option);
+          imobCandidates.push({ record, option });
         }
-        const diversifiedImob = imobOptions.length
-          ? selectDiverseListings(imobOptions, imobOptions.length, {
+
+        const diversifiedImob = imobCandidates.length
+          ? selectDiverseListings(imobCandidates.map((i) => i.option), imobCandidates.length, {
               preferDifferentProperties: filterInput.properties.length === 0
             })
           : [];
-        const portfolio = [...orderedListings.map((listing) => ({ provider: 'stays', listing })), ...diversifiedImob.map((listing) => ({ provider: 'imob', listing }))];
+
+        const portfolio = [
+          ...orderedListings.map((listing) => ({ provider: 'stays', listing })),
+          ...diversifiedImob.map((listing) => ({ provider: 'imob', listing }))
+        ];
         const pageCandidates = portfolio.slice(offsetWithinWindow, offsetWithinWindow + limitResults);
+
+        // Otimização: Cota preço PIX SOMENTE para as opções do Imob que realmente entrarão na página!
+        const imobRecordsById = new Map(imobCandidates.map((i) => [String(i.record?.id), i.record]));
+        await Promise.all(pageCandidates.filter((c) => c.provider === 'imob').map(async (candidate) => {
+          const opt = candidate.listing;
+          if (opt.valor_total || !opt.id) return;
+          try {
+            const pixPrice = await imobClient.getPixPrice({
+              listingId: opt.id,
+              from: validFrom.str,
+              to: validTo.str,
+              persons: numPersons
+            });
+            if (pixPrice) {
+              opt.valor_total = pixPrice;
+              opt.valor_diaria = nights > 0 ? Math.round((pixPrice / nights) * 100) / 100 : pixPrice;
+              const raw = imobRecordsById.get(String(opt.id));
+              if (raw) raw.valorTotal = pixPrice;
+            }
+          } catch (error) {
+            logSearch('search.imob_price_error', {
+              request_id: requestId,
+              code: error.code || 'IMOB_PRICE_REQUEST_FAILED'
+            });
+          }
+        }));
+
+        const selectedStays = pageCandidates.filter((c) => c.provider === 'stays').map((c) => c.listing);
+        const enrichedListings = selectedStays.length ? await staysClient.enrichListings(selectedStays) : [];
+        const staysOptions = processAndRankResults(enrichedListings, nightsCriteria);
         const staysById = new Map(staysOptions.map((item) => [String(item.id || ''), item]));
         const imobByLink = new Map(diversifiedImob.map((item) => [item.link_reserva, item]));
+
         const allOptions = pageCandidates.map(({ provider, listing }) => provider === 'stays'
           ? staysById.get(String(listing?.listing?.id || listing?.listing?._id || listing?.id || listing?._id || ''))
           : imobByLink.get(listing.link_reserva)

@@ -125,7 +125,30 @@ async function main() {
   assert.ok(fullStays.opcoes.every((option) => String(option.id).startsWith('STAY-')));
   assert.equal(upstreamCalls.some((call) => call.url.hostname === 'imob.test'), false);
 
+  // Teste 3: Consulta de condomínio na rota /api/v1/properties (híbrida Stays + Imob)
+  const propResponse = await nativeFetch(`${baseUrl}/api/v1/properties?q=Golden`);
+  const propPayload = await propResponse.json();
+  assert.equal(propResponse.status, 200);
+  assert.equal(propPayload.sucesso, true);
+  assert.ok(propPayload.propriedades.length >= 1);
+  assert.equal(propPayload.propriedades[0].nome, 'Golden Dolphin Supreme');
+  assert.equal(propPayload.propriedades[0].provedor, 'imob');
+  assert.ok(propPayload.propriedades[0].descricao.length > 0);
+
+  // Teste 4: Busca de disponibilidade filtrada por condomínio do Imob (sem quebrar na Stays)
+  upstreamCalls.length = 0;
+  const imobFilteredResponse = await nativeFetch(`${baseUrl}/api/v1/search`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from: '2026-11-01', to: '2026-11-03', persons: 4, property: 'Golden Dolphin Supreme', max_results: 3 })
+  });
+  const imobFilteredPayload = await imobFilteredResponse.json();
+  assert.equal(imobFilteredResponse.status, 200);
+  assert.equal(imobFilteredPayload.sucesso, true);
+  assert.ok(imobFilteredPayload.opcoes.length >= 1);
+  assert.equal(imobFilteredPayload.opcoes[0].condominio, 'Golden Dolphin Supreme');
+
   console.log('search-api integration: local endpoint preserves response option shape and supplements only when needed');
+  console.log('search-api integration: property lookup and imob-only resolution verified successfully');
   process.exit(0);
 }
 
