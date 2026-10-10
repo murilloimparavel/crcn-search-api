@@ -5,8 +5,8 @@ async function testOfficialSearchUsesBasicAuthAndJson() {
   const calls = [];
   const client = new StaysClient({
     baseUrl: 'https://stays.test/external/v1',
-    login: 'api-user',
-    password: 'secret-value',
+    clientId: 'api-client-id',
+    clientSecret: 'secret-value',
     fetchImpl: async (url, options) => {
       calls.push({ url: new URL(url), options });
       return Response.json([{ id: 'LI03J', bookingPrice: { _mctotal: { BRL: 900 } } }]);
@@ -16,7 +16,7 @@ async function testOfficialSearchUsesBasicAuthAndJson() {
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url.pathname, '/external/v1/booking/search-listings');
   assert.equal(calls[0].options.method, 'POST');
-  assert.equal(calls[0].options.headers.Authorization, `Basic ${Buffer.from('api-user:secret-value').toString('base64')}`);
+  assert.equal(calls[0].options.headers.Authorization, `Basic ${Buffer.from('api-client-id:secret-value').toString('base64')}`);
   assert.deepEqual(JSON.parse(calls[0].options.body), {
     from: '2026-10-06', to: '2026-10-09', guests: 2, skip: 0, limit: 20
   });
@@ -26,7 +26,7 @@ async function testOfficialSearchUsesBasicAuthAndJson() {
 async function testFilterCatalogAndResolution() {
   const calls = [];
   const client = new StaysClient({
-    baseUrl: 'https://stays.test/external/v1', login: 'user', password: 'password',
+    baseUrl: 'https://stays.test/external/v1', clientId: 'id', clientSecret: 'secret',
     fetchImpl: async (url) => {
       calls.push(new URL(url).pathname);
       return Response.json({ amenities: [{ _id: 'pool', _mstitle: { pt_BR: 'Piscina' } }] });
@@ -39,21 +39,39 @@ async function testFilterCatalogAndResolution() {
 
 async function testUnauthorizedErrorDoesNotLeakCredentials() {
   const client = new StaysClient({
-    baseUrl: 'https://stays.test/external/v1', login: 'private-user', password: 'private-pass',
+    baseUrl: 'https://stays.test/external/v1', clientId: 'private-id', clientSecret: 'private-secret',
     fetchImpl: async () => new Response('', { status: 401 })
   });
   await assert.rejects(client.getSearchFilters(), (error) => {
     assert.ok(error instanceof StaysError);
     assert.equal(error.code, 'STAYS_UNAUTHORIZED');
-    assert.doesNotMatch(error.message, /private-user|private-pass/);
+    assert.doesNotMatch(error.message, /private-id|private-secret/);
     return true;
   });
+}
+
+async function testReadOnlyReservationEndpoints() {
+  const calls = [];
+  const client = new StaysClient({
+    baseUrl: 'https://stays.test/external/v1', clientId: 'id', clientSecret: 'secret',
+    fetchImpl: async (url, options) => {
+      calls.push({ path: new URL(url).pathname, method: options.method });
+      return Response.json([]);
+    }
+  });
+  await client.getReservation('partner/code');
+  await client.getReservationPayments('partner/code');
+  assert.deepEqual(calls, [
+    { path: '/external/v1/booking/reservations/partner%2Fcode', method: 'GET' },
+    { path: '/external/v1/booking/reservations/partner%2Fcode/payments', method: 'GET' }
+  ]);
 }
 
 async function main() {
   await testOfficialSearchUsesBasicAuthAndJson();
   await testFilterCatalogAndResolution();
   await testUnauthorizedErrorDoesNotLeakCredentials();
+  await testReadOnlyReservationEndpoints();
   console.log('stays-client: all tests passed');
 }
 

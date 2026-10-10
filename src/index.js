@@ -8,6 +8,7 @@ const { normalizeImobListing } = require('./imob-normalizer');
 const { processAndRankResults, selectDiverseListings, assignSuggestedTags, normalizeProperty, getAmenityNames, getTitle, cleanText } = require('./normalizer');
 const { fetchWithDeduplication, clearCache } = require('./cache');
 const { calculateDate, todayInSaoPaulo, getNowBRT } = require('./date-calculator');
+const { createCommercialAssistantRouter } = require('./commercial-assistant');
 
 const SEARCH_DATE_FORMAT = 'YYYY-MM-DD';
 const SEARCH_DATE_EXAMPLE = '2026-09-05';
@@ -46,6 +47,13 @@ app.use((req, res, next) => {
   next();
 });
 app.use(express.json({ limit: '100kb', type: ['application/json', '*/*'] }));
+
+app.use('/api/v1/commercial-assistant', createCommercialAssistantRouter({
+  express,
+  staysClient,
+  imobClient,
+  authServiceUrl: process.env.EVO_AUTH_SERVICE_URL
+}));
 
 // Validador e normalizador flexível de datas
 function parseAndValidateDate(dateStr) {
