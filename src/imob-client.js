@@ -17,14 +17,23 @@ class ImobError extends Error {
 function extractRecords(payload) {
   if (Array.isArray(payload)) return payload;
   if (!payload || typeof payload !== 'object') return [];
-  for (const key of ['opcoes', 'imoveis', 'orcamentos', 'resultados', 'data', 'dados']) {
+  for (const key of ['opcoes', 'imoveis', 'orcamentos', 'resultados', 'data', 'dados', 'options', 'listings', 'results', 'items']) {
     if (Array.isArray(payload[key])) return payload[key];
     if (payload[key] && typeof payload[key] === 'object') {
       const nested = extractRecords(payload[key]);
       if (nested.length) return nested;
     }
   }
+  // Accept a single listing object, but reject arbitrary objects as an empty result.
+  if (['id', 'idImovel', 'id_imovel', 'unidade', 'linkParceiro', 'link_parceiro'].some((key) => payload[key] != null)) return [payload];
   return [];
+}
+
+function hasKnownRecordCollection(payload) {
+  if (Array.isArray(payload)) return true;
+  if (!payload || typeof payload !== 'object') return false;
+  return ['opcoes', 'imoveis', 'orcamentos', 'resultados', 'data', 'dados', 'options', 'listings', 'results', 'items']
+    .some((key) => Array.isArray(payload[key]) || hasKnownRecordCollection(payload[key]));
 }
 
 function formatImobDate(isoDate) {
@@ -130,9 +139,8 @@ class ImobClient {
         throw new ImobError('A API Imob recusou a consulta.', { code: 'IMOB_API_ERROR' });
       }
       const records = extractRecords(payload);
-      if (!records.length && payload && typeof payload === 'object' && !Array.isArray(payload)
-        && !Object.keys(payload).length) {
-        throw new ImobError('A API Imob retornou uma resposta vazia em formato inesperado.', { code: 'IMOB_INVALID_RESPONSE' });
+      if (!records.length && !hasKnownRecordCollection(payload)) {
+        throw new ImobError('A API Imob retornou um formato de disponibilidade não reconhecido.', { code: 'IMOB_INVALID_RESPONSE' });
       }
       return records;
     } catch (error) {
@@ -223,4 +231,4 @@ class ImobClient {
   }
 }
 
-module.exports = { ImobClient, ImobError, extractRecords, formatImobDate, normalizePropertyName, extractPixPrice };
+module.exports = { ImobClient, ImobError, extractRecords, hasKnownRecordCollection, formatImobDate, normalizePropertyName, extractPixPrice };

@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict');
-const { ImobClient, formatImobDate, normalizePropertyName, extractPixPrice } = require('../src/imob-client');
+const { ImobClient, ImobError, formatImobDate, normalizePropertyName, extractPixPrice } = require('../src/imob-client');
 
 async function testRequestContractAndAuthentication() {
   let call;
@@ -84,6 +84,13 @@ async function testMissingConfigurationAndNoAvailability() {
     fetchImpl: async () => Response.json({ erro: 'Nenhum imóvel próprio disponível.' })
   });
   assert.deepEqual(await noAvailability.search({ from: '2026-10-16', to: '2026-10-18', persons: 2 }), []);
+  const unrecognized = new ImobClient({ authorization: 'Basic test', fetchImpl: async () => Response.json({ status: 'ok', message: 'consulta processada' }) });
+  await assert.rejects(
+    () => unrecognized.search({ from: '2026-10-16', to: '2026-10-18', persons: 2 }),
+    (error) => error instanceof ImobError && error.code === 'IMOB_INVALID_RESPONSE'
+  );
+  const recognizedEmpty = new ImobClient({ authorization: 'Basic test', fetchImpl: async () => Response.json({ opcoes: [] }) });
+  assert.deepEqual(await recognizedEmpty.search({ from: '2026-10-16', to: '2026-10-18', persons: 2 }), []);
 }
 
 async function testReadOnlyQuoteRequestParsesPixPrice() {

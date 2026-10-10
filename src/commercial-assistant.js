@@ -140,7 +140,9 @@ function createCommercialAssistantRouter({ express, fetchImpl = global.fetch, st
           condominiumId: filters.condominio || null,
           onePerCondominium: filters.umCada === true
         });
-        const options = records.map((record) => normalizeImobListing(record, criteria)).filter((item) => item.link_reserva);
+        // Preserve provider results without a booking URL instead of silently
+        // turning a non-empty response into an empty search result.
+        const options = records.map((record) => normalizeImobListing(record, criteria));
         return res.json({ success: true, data: { alternatives: options, period: { from: criteria.from, to: criteria.to, nights: criteria.nights, guests: criteria.persons }, limitations: ['A idade individual das crianças não é aplicada pela API parceira; apenas o total de hóspedes é enviado.'] } });
       }
       if (req.body.source && req.body.source !== 'stays') return res.status(400).json({ success: false, error: { code: 'INVALID_SOURCE', message: 'Origem de busca inválida.' } });

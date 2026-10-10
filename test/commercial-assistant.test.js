@@ -33,7 +33,10 @@ async function main() {
       configured: true,
       async search(criteria) {
         imobCalls.push(criteria);
-        return [{ id: 445, nomeCond: 'Condomínio', titulo: 'Apartamento teste', valorTotal: 800, linkParceiro: 'https://reservascrcn.com.br/parceiro/1/445?01-11-2026,03-11-2026?s2,,' }];
+        return [
+          { id: 445, nomeCond: 'Condomínio', titulo: 'Apartamento teste', valorTotal: 800, linkParceiro: 'https://reservascrcn.com.br/parceiro/1/445?01-11-2026,03-11-2026?s2,,' },
+          { unidade: 'B0802', nomeCond: 'Outro condomínio', titulo: 'Apartamento sem link', fotos: [{ data: { url: 'https://images.example.test/flat.jpg' } }] }
+        ];
       }
     }, authServiceUrl: 'http://auth.test',
     fetchImpl: async (_url, options) => {
@@ -91,7 +94,10 @@ async function main() {
       source: 'imobsys', filters: { condominio: '77', umCada: true }
     });
     assert.equal(imobResponse.status, 200);
-    assert.equal((await imobResponse.json()).data.alternatives.length, 1);
+    const imobAlternatives = (await imobResponse.json()).data.alternatives;
+    assert.equal(imobAlternatives.length, 2);
+    assert.equal(imobAlternatives[1].link_reserva, null);
+    assert.deepEqual(imobAlternatives[1].images, ['https://images.example.test/flat.jpg']);
     assert.deepEqual(imobCalls.at(-1), { from: '2026-11-01', to: '2026-11-03', persons: 3, condominiumId: '77', onePerCondominium: true });
     assert.equal((await request('availability', {
       from: '2026-11-01', to: '2026-11-03', adults: 2, source: 'imobsys', filters: { piscina24h: true }

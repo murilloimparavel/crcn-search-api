@@ -18,6 +18,17 @@ assert.equal(options[1].nome, 'Flat Azul');
 assert.equal(options[1].capacidade, 4);
 assert.deepEqual(options[1].destaques, ['Piscina']);
 
+const withImages = processAndRankResults([{
+  listing: { id: 'IMG', bookingPrice: { _mctotal: { BRL: 500 } } },
+  details: {
+    _mstitle: { pt_BR: 'Flat com fotos' },
+    _t_mainImageMeta: { url: 'https://images.example.test/main.jpg' },
+    _t_imagesMeta: [{ url: 'https://images.example.test/main.jpg' }, { url: 'https://images.example.test/room.jpg' }, { url: 'http://insecure.example.test/image.jpg' }]
+  }
+}], { from: '2026-10-06', to: '2026-10-08', persons: 2, nights: 2 })[0];
+assert.equal(withImages.image, 'https://images.example.test/main.jpg');
+assert.deepEqual(withImages.images, ['https://images.example.test/main.jpg', 'https://images.example.test/room.jpg']);
+
 const property = normalizeProperty({ id: 'condo-1', _mstitle: { pt_BR: 'Condomínio Central' }, address: { city: 'Caldas Novas' } });
 assert.equal(property.nome, 'Condomínio Central');
 assert.equal(property.cidade, 'Caldas Novas');
