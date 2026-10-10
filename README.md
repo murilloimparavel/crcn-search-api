@@ -6,7 +6,7 @@ Micro-API de busca ao vivo de disponibilidade, flats, diárias, totais e capacid
 
 A API consulta a **Stays External API** com autenticação Basic, usando `POST /booking/search-listings`. O preço oficial vem em `bookingPrice._mctotal`. Para buscas gerais, a Search API avalia até 60 candidatos, paginações de até 20 por chamada, e devolve no máximo três opções diversificadas: prioriza condomínios diferentes e, quando isso não é possível, diferenças de capacidade, quartos, camas e comodidades. A opção mais econômica continua em primeiro lugar; cada opção recebe `tag_sugerida` para orientar a apresentação da Sofia. Em buscas filtradas por propriedade, a diversidade é buscada entre as unidades desse empreendimento.
 
-O endpoint público da Search API continua o mesmo (`POST /api/v1/search`). As credenciais devem ser injetadas pelo ambiente de execução: `STAYS_BASE_URL` (padrão `https://crcn.stays.net/external/v1`), `STAYS_LOGIN` e `STAYS_PASSWORD`. Nunca grave credenciais em arquivos versionados. `STAYS_REQUEST_TIMEOUT_MS` controla timeout por chamada (padrão 8 s). O resultado é uma cotação atual e deve ser confirmada no link de reserva.
+O endpoint público da Search API continua o mesmo (`POST /api/v1/search`). As credenciais da External API devem ser injetadas pelo ambiente de execução: `STAYS_BASE_URL` (padrão `https://crcn.stays.net/external/v1`), `STAYS_CLIENT_ID` e `STAYS_CLIENT_SECRET`. Login e senha do painel Stays não substituem essas credenciais. Nunca grave segredos em arquivos versionados. `STAYS_REQUEST_TIMEOUT_MS` controla timeout por chamada (padrão 8 s). O resultado é uma cotação atual e deve ser confirmada no link de reserva.
 
 ### Fonte complementar Imob
 
@@ -55,3 +55,13 @@ Resolve expressões relativas no fuso `America/Sao_Paulo`. Aceita `hoje`, `amanh
 
 ### 4. Limpeza de Cache
 POST /api/v1/cache/clear
+
+### 5. Consultas do Assistente Comercial do CRM
+
+As rotas abaixo são separadas do contrato público usado pelos agentes em `/api/v1/search`. O frontend envia o Bearer de sessão do CRM; a Search API valida esse token via `POST {EVO_AUTH_SERVICE_URL}/api/v1/auth/validate`. Sem URL configurada ou quando Evo Auth não responde, as rotas falham fechadas. Configure também `CORS_ORIGINS` com a origem exata do CRM e `EVO_AUTH_SERVICE_URL` com um endereço de rede alcançável pelo container da Search API. Não configure credenciais de provedor no frontend.
+
+- `POST /api/v1/commercial-assistant/availability`: `{ from, to, adults, children, source: "stays" | "imobsys", inventory?, filters? }`. Stays recebe o total de hóspedes e filtro de inventário; Imob recebe total, condomínio opcional e `umCada`.
+- `POST /api/v1/commercial-assistant/reservation`: `{ reservationCode }`. Consulta Stays e devolve uma lista permitida de campos; pagamentos pendentes não contam como pagos e débitos completados reduzem o total pago.
+- `POST /api/v1/commercial-assistant/alternative`: `{ reservationCode, amenity? }`. Usa período/hóspedes da reserva, filtra pela comodidade Stays indicada e exclui a unidade atual.
+
+Todas as rotas exigem token válido do CRM. Não registram código da reserva, token, nomes de hóspedes, notas internas ou payload bruto do provedor. A API Imob atual não filtra id individual, unidade, quartos, check-in/out flexível, piscina ou bebidas; esses filtros não fazem parte da interface até existir contrato documentado. Idades de crianças são informadas na tela, mas os provedores recebem somente o total de hóspedes.

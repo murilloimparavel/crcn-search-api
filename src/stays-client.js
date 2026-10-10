@@ -13,15 +13,15 @@ class StaysError extends Error {
 class StaysClient {
   constructor({
     baseUrl = process.env.STAYS_BASE_URL || DEFAULT_BASE_URL,
-    login = process.env.STAYS_LOGIN,
-    password = process.env.STAYS_PASSWORD,
+    clientId = process.env.STAYS_CLIENT_ID,
+    clientSecret = process.env.STAYS_CLIENT_SECRET,
     fetchImpl = global.fetch,
     timeoutMs = Number(process.env.STAYS_REQUEST_TIMEOUT_MS || DEFAULT_TIMEOUT_MS)
   } = {}) {
     if (typeof fetchImpl !== 'function') throw new Error('global fetch não está disponível. Use Node.js 18 ou superior.');
     this.baseUrl = baseUrl.replace(/\/$/, '');
-    this.login = login;
-    this.password = password;
+    this.clientId = clientId;
+    this.clientSecret = clientSecret;
     this.fetchImpl = fetchImpl;
     this.timeoutMs = timeoutMs;
     this.searchFiltersCache = null;
@@ -29,10 +29,14 @@ class StaysClient {
   }
 
   get authHeader() {
-    if (!this.login || !this.password) {
+    if (!this.clientId || !this.clientSecret) {
       throw new StaysError('Credenciais da API Stays não configuradas.', { code: 'STAYS_NOT_CONFIGURED' });
     }
-    return `Basic ${Buffer.from(`${this.login}:${this.password}`).toString('base64')}`;
+    return `Basic ${Buffer.from(`${this.clientId}:${this.clientSecret}`).toString('base64')}`;
+  }
+
+  get configured() {
+    return Boolean(this.clientId && this.clientSecret);
   }
 
   async request(path, { method = 'GET', query, body } = {}) {
@@ -132,6 +136,14 @@ class StaysClient {
 
   async getProperty(id) {
     return this.request(`/content/properties/${encodeURIComponent(id)}`);
+  }
+
+  async getReservation(id) {
+    return this.request(`/booking/reservations/${encodeURIComponent(id)}`);
+  }
+
+  async getReservationPayments(id) {
+    return this.request(`/booking/reservations/${encodeURIComponent(id)}/payments`);
   }
 
   async searchProperties(query = '') {

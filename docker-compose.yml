@@ -7,13 +7,14 @@ services:
     environment:
       - PORT=3000
       - NODE_ENV=production
+      - EVO_AUTH_SERVICE_URL=${EVO_AUTH_SERVICE_URL:-}
       - STAYS_BASE_URL=${STAYS_BASE_URL:-https://crcn.stays.net/external/v1}
-      - STAYS_LOGIN=${STAYS_LOGIN:?Configure STAYS_LOGIN no ambiente}
-      - STAYS_PASSWORD=${STAYS_PASSWORD:?Configure STAYS_PASSWORD no ambiente}
+      - STAYS_CLIENT_ID=${STAYS_CLIENT_ID:?Configure STAYS_CLIENT_ID no ambiente}
+      - STAYS_CLIENT_SECRET=${STAYS_CLIENT_SECRET:?Configure STAYS_CLIENT_SECRET no ambiente}
       - STAYS_REQUEST_TIMEOUT_MS=${STAYS_REQUEST_TIMEOUT_MS:-8000}
       - IMOB_BASE_URL=${IMOB_BASE_URL:-https://api.cnsp.app/crcn}
       - IMOB_PUBLIC_BASE_URL=${IMOB_PUBLIC_BASE_URL:-https://reservascrcn.com.br}
       - IMOB_AUTHORIZATION=${IMOB_AUTHORIZATION:-}
       - IMOB_REQUEST_TIMEOUT_MS=${IMOB_REQUEST_TIMEOUT_MS:-12000}
       - IMOB_PRICE_CANDIDATE_LIMIT=${IMOB_PRICE_CANDIDATE_LIMIT:-20}
-      - CORS_ORIGINS=https://crm.murilloalves.com.br
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:5173}

@@ -84,8 +84,8 @@ async function main() {
   process.env.PORT = String(port);
   process.env.NODE_ENV = 'test';
   process.env.STAYS_BASE_URL = 'https://stays.test/external/v1';
-  process.env.STAYS_LOGIN = 'test-user';
-  process.env.STAYS_PASSWORD = 'test-password';
+  process.env.STAYS_CLIENT_ID = 'test-client-id';
+  process.env.STAYS_CLIENT_SECRET = 'test-client-secret';
   process.env.IMOB_BASE_URL = 'https://imob.test/crcn';
   process.env.IMOB_PUBLIC_BASE_URL = 'https://reservascrcn.test';
   process.env.IMOB_AUTHORIZATION = 'Basic test-token';
