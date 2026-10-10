@@ -20,6 +20,31 @@ function priceNumber(value) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
+const IMAGE_FIELDS = [
+  'imagemPrincipal', 'imagem_principal', 'fotoPrincipal', 'foto_principal',
+  'urlImagem', 'url_imagem', 'urlFoto', 'url_foto', 'foto', 'image', 'images',
+  'fotos', 'imagens', '_t_imagesMeta', 'mainImage', 'main_image', 'thumbnail', 'thumb'
+];
+function imageValueUrls(value, depth = 0) {
+  if (depth > 5 || value === null || value === undefined) return [];
+  if (Array.isArray(value)) return value.flatMap((item) => imageValueUrls(item, depth + 1));
+  if (typeof value === 'string') {
+    const candidate = value.startsWith('//') ? `https:${value}` : value;
+    try {
+      const parsed = new URL(candidate);
+      return parsed.protocol === 'https:' ? [parsed.href] : [];
+    } catch { return []; }
+  }
+  if (typeof value !== 'object') return [];
+
+  return Object.values(value).flatMap((nested) => imageValueUrls(nested, depth + 1));
+}
+
+function imageUrls(record) {
+  const urls = IMAGE_FIELDS.flatMap((key) => imageValueUrls(record?.[key]));
+  return [...new Set(urls)].slice(0, 10);
+}
+
 function isAllowedBookingHost(urlString) {
   try {
     const parsed = new URL(urlString);
@@ -52,6 +77,7 @@ function normalizeImobListing(record, { from, to, persons, nights }) {
   const rooms = Number(firstValue(record, ['quartos', 'qtdeQuartos', 'qtdeqrts', 'qtdQuartos']));
   const id = firstValue(record, ['id', 'idImovel', 'id_imovel', 'unidade']);
   const link = buildImobBookingLink(record, { from, to, persons });
+  const images = imageUrls(record);
 
   return {
     id: id === null ? null : String(id),
@@ -68,8 +94,10 @@ function normalizeImobListing(record, { from, to, persons, nights }) {
     noites: nights,
     destaques: [],
     diferenciais: '',
+    image: images[0] || null,
+    images,
     link_reserva: link
   };
 }
 
-module.exports = { normalizeImobListing, buildImobBookingLink, priceNumber };
+module.exports = { normalizeImobListing, buildImobBookingLink, priceNumber, imageUrls };

@@ -60,6 +60,18 @@ function getHighlights(listing, catalog = []) {
   return highlights;
 }
 
+function imageUrls(value) {
+  const entries = Array.isArray(value) ? value : value ? [value] : [];
+  return [...new Set(entries.map((image) => {
+    const url = typeof image === 'string' ? image : image?.url || image?.src || image?.imageUrl;
+    if (typeof url !== 'string') return null;
+    try {
+      const parsed = new URL(url);
+      return parsed.protocol === 'https:' ? parsed.href : null;
+    } catch { return null; }
+  }).filter(Boolean))].slice(0, 10);
+}
+
 function normalizeApartment({ listing, details, property, amenityCatalog = [] }, { from, to, persons, nights }) {
   const source = details || listing;
   const price = listing?.bookingPrice || {};
@@ -68,6 +80,8 @@ function normalizeApartment({ listing, details, property, amenityCatalog = [] },
   const address = source?.address || listing?.address || {};
   const amenities = getAmenityNames(source, amenityCatalog);
   const highlights = getHighlights(source, amenityCatalog);
+  const images = imageUrls(source?._t_imagesMeta || source?.images || listing?._t_imagesMeta || listing?.images);
+  const mainImage = imageUrls(source?._t_mainImageMeta || listing?._t_mainImageMeta)[0] || images[0] || null;
 
   return {
     id: getPublicApartmentCode(listing),
@@ -84,6 +98,8 @@ function normalizeApartment({ listing, details, property, amenityCatalog = [] },
     noites: nights,
     destaques: highlights,
     diferenciais: highlights.join('; '),
+    image: mainImage,
+    images,
     link_reserva: buildBookingLink({ apartment: listing, from, to, persons })
   };
 }
@@ -244,6 +260,7 @@ function normalizeProperty(property, { amenityCatalog = [] } = {}) {
 
 module.exports = {
   cleanText,
+  imageUrls,
   getTitle,
   getAmenityNames,
   buildBookingLink,
