@@ -44,6 +44,24 @@ A resposta de `/api/v1/search` inclui até três opções com `tag_sugerida`, `n
 - `GET /api/v1/properties?q=Thermas`: pesquisa empreendimentos pelo nome.
 - `GET /api/v1/listings/{id}`: detalhes, regras, comodidades e imagens de um anúncio.
 
+### Consulta de reserva pelo código da plataforma
+
+- `GET /api/v1/reservations/{partnerCode}` busca a reserva pelo código informado na plataforma e devolve uma estrutura amigável para IA com status da reserva, canal, datas/horários, quantidade de hóspedes, nomes do apartamento/condomínio, descrição do imóvel e situação de pagamento.
+- A rota consulta a reserva, os pagamentos e o imóvel no Stays. Não devolve nome/telefone do titular, documentos, endereço, dados de cartão, notas internas, comissão ou IDs internos.
+- Configure `RESERVATION_LOOKUP_TOKEN` no ambiente da API. Envie o mesmo segredo no cabeçalho `x-reservation-lookup-token`; a rota responde `503` se o token não estiver configurado e `401` se estiver ausente/incorreto. Configure esse cabeçalho na custom tool do EvoCRM.
+- O status de pagamento separa total da reserva, total pago informado nas estatísticas e créditos concluídos/pendentes. A rota só sinaliza `pago` quando créditos concluídos cobrem o total e não há créditos pendentes; divergências permanecem explícitas e não liberam o fluxo do voucher.
+- `reserva.status.pode_seguir_para_voucher` só é `true` quando a reserva está `booked`, o pagamento é comprovadamente `pago` e os dados necessários da hospedagem estão completos. Para demais estados, divergências ou dados incompletos, siga `orientacao_para_ia` e encaminhe para conferência humana/financeira.
+- Códigos não encontrados respondem HTTP `404` com `encontrada: false`; códigos ambíguos respondem HTTP `409` sem revelar registros.
+
+Exemplo de chamada:
+
+```http
+GET /api/v1/reservations/ABC123
+x-reservation-lookup-token: <segredo-configurado-no-servidor-e-na-tool>
+```
+
+O segredo não deve ser incluído em prompts, parâmetros de query, logs ou respostas ao hóspede. A decisão atual de manter as demais rotas públicas não remove a autenticação obrigatória desta rota de consulta de reserva.
+
 `buscar_propriedade_crcn` já está cadastrada para chamar `/api/v1/properties` antes da busca de disponibilidade por hotel. As rotas de catálogo geral (`/api/v1/searchfilters`) e detalhes de anúncio (`/api/v1/listings/{id}`) ainda não estão cadastradas como custom tools. Veja os contratos e o fluxo em [`docs/evocrm-custom-tools.md`](./docs/evocrm-custom-tools.md).
 
 Quando a API receber formato inválido, ela retorna HTTP `400` com `codigo`, `parametro`, `valor_recebido`, `formato_aceito` e um exemplo utilizável. Os logs registram cada consulta com `request_id`, resultado da validação, cache, duração e total de opções retornadas.

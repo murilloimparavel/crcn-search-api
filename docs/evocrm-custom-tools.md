@@ -45,6 +45,12 @@ Quando o cliente pedir mais opções e `mais_opcoes_disponiveis` for `true`, cha
 
 A rota existente para consulta de um apartamento específico é `GET /api/v1/listings/{id}`. Uma tool `consultar_acomodacao_crcn` pode usar `id` como parâmetro de caminho para recuperar descrição, capacidade, quartos, camas, banheiros, regras, comodidades e imagens.
 
+## Consulta de reserva para o pós-vendas
+
+Configure uma tool somente de leitura para `GET https://search-api.caldasindica.com/api/v1/reservations/{partnerCode}`. O parâmetro `partnerCode` é o código da reserva informado pelo hóspede. A tool deve enviar o cabeçalho secreto `x-reservation-lookup-token`, com valor guardado na configuração segura do EvoCRM e igual a `RESERVATION_LOOKUP_TOKEN` configurado no ambiente da Search API. Não envie esse segredo em query params, no body ou no prompt.
+
+A resposta já apresenta campos normalizados para a IA: situação da reserva, canal, entrada/saída com horários, hóspedes, apartamento, condomínio, descrição, pagamentos e `orientacao_para_ia`. A rota não expõe dados pessoais do titular. Trate HTTP 404 como código não localizado e HTTP 409 como código ambíguo; não tente enumerar códigos. Só prossiga para dados de voucher quando `reserva.status.pode_seguir_para_voucher` for `true` e depois da confirmação dos detalhes pelo hóspede. Pendências ou divergências financeiras devem ser encaminhadas para conferência humana/financeira.
+
 ## Registro no EvoCRM
 
 Os registros ativos estão em `evo_core_custom_tools` e nas entradas correspondentes de `evo_core_agents.config.custom_tools.http_tools` do `subagent_reservas_crcn`. A ferramenta de busca de propriedade tem UUID `584dd0b6-a136-4eb8-bfc1-698f7ade0aa1`; a busca de disponibilidade mantém UUID `f25b1f02-9950-4db8-a213-2345678901bc`.

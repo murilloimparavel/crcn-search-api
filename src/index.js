@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const { timingSafeEqual } = require('node:crypto');
 const { StaysClient } = require('./stays-client');
 const { ImobClient } = require('./imob-client');
 const { PropertyCatalog } = require('./property-catalog');
@@ -9,6 +10,7 @@ const { processAndRankResults, selectDiverseListings, assignSuggestedTags, norma
 const { fetchWithDeduplication, clearCache } = require('./cache');
 const { calculateDate, todayInSaoPaulo, getNowBRT } = require('./date-calculator');
 const { createCommercialAssistantRouter } = require('./commercial-assistant');
+const { normalizeReservation } = require('./reservation-normalizer');
 
 const SEARCH_DATE_FORMAT = 'YYYY-MM-DD';
 const SEARCH_DATE_EXAMPLE = '2026-09-05';
@@ -239,6 +241,168 @@ function publicError(res, error) {
         : 'Não foi possível consultar a API oficial de reservas neste momento.'
   });
 }
+
+function getTodayIsoBRT() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit'
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function reservationLookupAuthorized(req) {
+  const expected = process.env.RESERVATION_LOOKUP_TOKEN;
+  if (!expected) return { configured: false, authorized: false };
+  const supplied = req.get('x-reservation-lookup-token') || '';
+  const expectedBuffer = Buffer.from(expected);
+  const suppliedBuffer = Buffer.from(supplied);
+  const sameLength = expectedBuffer.length === suppliedBuffer.length;
+  const authorized = sameLength && timingSafeEqual(expectedBuffer, suppliedBuffer);
+  return { configured: true, authorized };
+}
+
+function asReservationList(response) {
+  if (Array.isArray(response)) return response;
+  if (!response || typeof response !== 'object') return null;
+  for (const key of ['data', 'reservations', 'results', 'items']) {
+    if (Array.isArray(response[key])) return response[key];
+  }
+  return null;
+}
+
+function asPaymentList(response) {
+  if (Array.isArray(response)) return response;
+  if (!response || typeof response !== 'object') return null;
+  for (const key of ['data', 'payments', 'results', 'items']) {
+    if (Array.isArray(response[key])) return response[key];
+  }
+  return null;
+}
+
+// Busca uma reserva pelo código externo (partnerCode). O token é obrigatório
+// porque códigos de Booking podem ser enumeráveis e a resposta contém dados da hospedagem.
+app.get('/api/v1/reservations/:partnerCode', async (req, res) => {
+  const auth = reservationLookupAuthorized(req);
+  if (!auth.configured) {
+    return res.status(503).json({
+      sucesso: false,
+      codigo: 'RESERVATION_LOOKUP_NOT_CONFIGURED',
+      erro: 'A consulta de reservas ainda não está configurada.'
+    });
+  }
+  if (!auth.authorized) {
+    return res.status(401).json({ sucesso: false, codigo: 'UNAUTHORIZED', erro: 'Não autorizado.' });
+  }
+
+  const partnerCode = String(req.params.partnerCode || '').trim();
+  if (!partnerCode || partnerCode.length > 100 || /[\u0000-\u001f\u007f/\\]/.test(partnerCode)) {
+    return res.status(400).json({
+      sucesso: false,
+      codigo: 'INVALID_PARTNER_CODE',
+      erro: 'Informe um código de reserva válido.'
+    });
+  }
+
+  const requestId = req.get('x-request-id') || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const startedAt = Date.now();
+  try {
+    const exportResponse = await staysClient.searchReservationByPartnerCode(partnerCode, {
+      from: '2000-01-01',
+      to: getTodayIsoBRT()
+    });
+    const exportedReservations = asReservationList(exportResponse);
+    if (!exportedReservations) {
+      logSearch('reservation.lookup.invalid_response', { request_id: requestId, duration_ms: Date.now() - startedAt });
+      return res.status(502).json({ sucesso: false, codigo: 'STAYS_INVALID_RESERVATION_RESPONSE', erro: 'A consulta de reservas retornou um formato inesperado.' });
+    }
+
+    const matches = exportedReservations.filter((item) => String(item?.partnerCode || '').trim().toLocaleLowerCase('pt-BR') === partnerCode.toLocaleLowerCase('pt-BR'));
+    if (matches.length === 0) {
+      logSearch('reservation.lookup.not_found', { request_id: requestId, duration_ms: Date.now() - startedAt });
+      return res.status(404).json({
+        sucesso: true,
+        encontrada: false,
+        mensagem: 'Não encontrei uma reserva com esse código. Confira se o código foi digitado corretamente.'
+      });
+    }
+    if (matches.length > 1) {
+      logSearch('reservation.lookup.ambiguous', { request_id: requestId, matches: matches.length, duration_ms: Date.now() - startedAt });
+      return res.status(409).json({ sucesso: false, codigo: 'AMBIGUOUS_PARTNER_CODE', erro: 'O código corresponde a mais de uma reserva. Encaminhe para conferência humana.' });
+    }
+
+    const exported = matches[0];
+    const internalId = exported._id || exported.id;
+    if (!internalId) {
+      return res.status(502).json({ sucesso: false, codigo: 'STAYS_RESERVATION_ID_MISSING', erro: 'A reserva foi localizada, mas não foi possível consultar os detalhes.' });
+    }
+
+    const reservation = await staysClient.getReservation(internalId);
+    if (!reservation || typeof reservation !== 'object' || Array.isArray(reservation)) {
+      return res.status(502).json({ sucesso: false, codigo: 'STAYS_INVALID_RESERVATION_DETAILS', erro: 'A Stays retornou detalhes de reserva em formato inesperado.' });
+    }
+
+    const warnings = [];
+    const [paymentsResult, listingResult] = await Promise.allSettled([
+      staysClient.getReservationPayments(internalId),
+      reservation._idlisting ? staysClient.getListing(reservation._idlisting) : Promise.resolve(null)
+    ]);
+    let payments = null;
+    if (paymentsResult.status === 'fulfilled') {
+      payments = asPaymentList(paymentsResult.value);
+      if (!payments) warnings.push('A lista de pagamentos retornou um formato inesperado.');
+    } else {
+      warnings.push('Não foi possível consultar os lançamentos de pagamento.');
+    }
+
+    let listing = null;
+    let property = null;
+    if (listingResult.status === 'fulfilled') {
+      listing = listingResult.value;
+      if (listing?._idproperty) {
+        try {
+          property = await staysClient.getProperty(listing._idproperty);
+          if (!property || typeof property !== 'object' || Array.isArray(property)) {
+            property = null;
+            warnings.push('A Stays não retornou os detalhes do condomínio.');
+          }
+        } catch {
+          warnings.push('Não foi possível consultar o nome do condomínio.');
+        }
+      } else if (reservation._idlisting) {
+        warnings.push('O imóvel não retornou vínculo com um condomínio.');
+      }
+    } else {
+      warnings.push('Não foi possível consultar os detalhes do imóvel.');
+    }
+
+    const normalized = normalizeReservation({ reservation, payments, listing, property });
+    if (!listing) warnings.push('Os dados de apartamento e descrição podem estar incompletos.');
+    logSearch('reservation.lookup.success', {
+      request_id: requestId,
+      duration_ms: Date.now() - startedAt,
+      reservation_status: reservation.type || 'unknown',
+      payment_status: normalized.pagamento.status,
+      warning_count: warnings.length
+    });
+
+    return res.json({
+      sucesso: true,
+      encontrada: true,
+      mensagem: 'Reserva localizada. Os campos estão normalizados para orientar o atendimento.',
+      reserva: normalized,
+      dados_completos: warnings.length === 0,
+      avisos: warnings
+    });
+  } catch (error) {
+    logSearch('reservation.lookup.error', {
+      request_id: requestId,
+      code: error.code || 'RESERVATION_LOOKUP_FAILED',
+      ...(error.status ? { status: error.status } : {}),
+      duration_ms: Date.now() - startedAt
+    });
+    return publicError(res, error);
+  }
+});
 
 // Catálogos de busca para tools de pesquisa dirigida (comodidades, inventário, propriedades e cidades).
 app.get('/api/v1/searchfilters', async (req, res) => {
