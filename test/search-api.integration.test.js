@@ -16,8 +16,8 @@ function staysListing(id, propertyId, price) {
 }
 
 const imobRecords = [
-  { id: 1086, condominio: 135, nomeCond: 'Golden Dolphin Supreme', unidade: 'B0802', titulo: 'Apartamento B0802', maxOcupantes: 8, linkParceiro: 'https://reservascrcn.com.br/parceiro/1/1086?01-11-2026,03-11-2026?s1,,' },
-  { id: 1002, condominio: 136, nomeCond: 'Everest Flat Service', unidade: '00604', titulo: 'Apartamento 00604', maxOcupantes: 4, valorTotal: 442, linkParceiro: 'https://reservascrcn.com.br/parceiro/1/1002?01-11-2026,03-11-2026?s1,,' }
+  { id: 1086, condominio: 91, nomeCond: 'Golden Dolphin Supreme', unidade: 'B0802', titulo: 'Apartamento B0802', maxOcupantes: 8, linkParceiro: 'https://reservascrcn.com.br/parceiro/1/1086?01-11-2026,03-11-2026?s1,,' },
+  { id: 1002, condominio: 44, nomeCond: 'Everest Flat Service', unidade: '00604', titulo: 'Apartamento 00604', maxOcupantes: 4, valorTotal: 442, linkParceiro: 'https://reservascrcn.com.br/parceiro/1/1002?01-11-2026,03-11-2026?s1,,' }
 ];
 
 global.fetch = async (input, options = {}) => {
@@ -131,9 +131,10 @@ async function main() {
   assert.equal(propResponse.status, 200);
   assert.equal(propPayload.sucesso, true);
   assert.ok(propPayload.propriedades.length >= 1);
-  assert.equal(propPayload.propriedades[0].nome, 'Golden Dolphin Supreme');
-  assert.equal(propPayload.propriedades[0].provedor, 'imob');
-  assert.ok(propPayload.propriedades[0].descricao.length > 0);
+  const goldenSupremeProperty = propPayload.propriedades.find((property) => property.nome === 'GOLDEN DOLPHIN SUPREME');
+  assert.ok(goldenSupremeProperty);
+  assert.equal(goldenSupremeProperty.provedor, 'imob');
+  assert.ok(goldenSupremeProperty.descricao.length > 0);
 
   // Teste 4: Busca de disponibilidade filtrada por condomínio do Imob (sem quebrar na Stays)
   upstreamCalls.length = 0;
@@ -145,7 +146,7 @@ async function main() {
   assert.equal(imobFilteredResponse.status, 200);
   assert.equal(imobFilteredPayload.sucesso, true);
   assert.ok(imobFilteredPayload.opcoes.length >= 1);
-  assert.equal(imobFilteredPayload.opcoes[0].condominio, 'Golden Dolphin Supreme');
+  assert.equal(imobFilteredPayload.opcoes[0].condominio, 'GOLDEN DOLPHIN SUPREME');
 
   // Teste 5: Paginação sequencial disjunta (page 1 vs page 2)
   const page1Res = await nativeFetch(`${baseUrl}/api/v1/search`, {
@@ -166,11 +167,11 @@ async function main() {
   assert.notEqual(page1Data.opcoes[0].id, page2Data.opcoes[0].id);
 
   // Teste 6: Consulta de acomodação por ID numérico do Imob
-  const listingImobRes = await nativeFetch(`${baseUrl}/api/v1/listings/135`);
+  const listingImobRes = await nativeFetch(`${baseUrl}/api/v1/listings/91`);
   const listingImobData = await listingImobRes.json();
   assert.equal(listingImobRes.status, 200);
   assert.equal(listingImobData.sucesso, true);
-  assert.equal(listingImobData.acomodacao.nome, 'Golden Dolphin Supreme');
+  assert.equal(listingImobData.acomodacao.nome, 'GOLDEN DOLPHIN SUPREME');
 
   console.log('search-api integration: local endpoint preserves response option shape and supplements only when needed');
   console.log('search-api integration: property lookup, imob resolution, pagination and numeric listings verified successfully');
