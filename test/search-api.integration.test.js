@@ -19,6 +19,16 @@ const imobRecords = [
   { id: 1086, condominio: 91, nomeCond: 'Golden Dolphin Supreme', unidade: 'B0802', titulo: 'Apartamento B0802', maxOcupantes: 8, linkParceiro: 'https://reservascrcn.com.br/parceiro/1/1086?01-11-2026,03-11-2026?s1,,' },
   { id: 1002, condominio: 44, nomeCond: 'Everest Flat Service', unidade: '00604', titulo: 'Apartamento 00604', maxOcupantes: 4, valorTotal: 442, linkParceiro: 'https://reservascrcn.com.br/parceiro/1/1002?01-11-2026,03-11-2026?s1,,' }
 ];
+const piazzaImobRecord = {
+  id: 2084,
+  condominio: 84,
+  nomeCond: 'Piazza diRoma',
+  unidade: 'A0601',
+  titulo: 'Apartamento Piazza A0601',
+  maxOcupantes: 6,
+  valorTotal: 900,
+  linkParceiro: 'https://reservascrcn.com.br/parceiro/1/2084?24-12-2026,27-12-2026?s1,,'
+};
 
 global.fetch = async (input, options = {}) => {
   const url = new URL(input);
@@ -26,12 +36,14 @@ global.fetch = async (input, options = {}) => {
   if (url.hostname === 'stays.test' && url.pathname.endsWith('/booking/searchfilter')) {
     return Response.json({
       amenities: [], inventory: [], properties: [
-        { _id: 'STAY-P1', _mstitle: { pt_BR: 'Hotel Stays' } }
+        { _id: 'STAY-P1', _mstitle: { pt_BR: 'Hotel Stays' } },
+        { _id: '6a3499da086cdffd520549e8', id: 'LH23J', _mstitle: { pt_BR: 'CRCN - Piazza diRoma' } }
       ], cities: [], regions: [], rooms: [], guests: []
     });
   }
   if (url.hostname === 'stays.test' && url.pathname.endsWith('/booking/search-listings')) {
     const body = JSON.parse(options.body || '{}');
+    if ((body.properties || []).includes('6a3499da086cdffd520549e8')) return Response.json([]);
     const count = body.guests === 5 ? 3 : 1;
     return Response.json(Array.from({ length: count }, (_, i) => staysListing(`STAY-${body.guests}-${i}`, `P-${i}`, 500 + i * 100)));
   }
@@ -51,6 +63,7 @@ global.fetch = async (input, options = {}) => {
   }
   if (url.hostname === 'imob.test' && url.pathname.endsWith('/listOrcamento')) {
     const body = JSON.parse(options.body || '{}');
+    if (String(body.condominio) === '84') return Response.json([piazzaImobRecord]);
     if (body.condominio) return Response.json(imobRecords.filter((item) => String(item.condominio) === String(body.condominio)));
     return Response.json({ opcoes: imobRecords });
   }
@@ -147,6 +160,20 @@ async function main() {
   assert.equal(imobFilteredPayload.sucesso, true);
   assert.ok(imobFilteredPayload.opcoes.length >= 1);
   assert.equal(imobFilteredPayload.opcoes[0].condominio, 'GOLDEN DOLPHIN SUPREME');
+
+  // Teste 4b: alias de propriedade Stays aciona Imob usando o ID canônico do condomínio.
+  upstreamCalls.length = 0;
+  const piazzaSearchResponse = await nativeFetch(`${baseUrl}/api/v1/search`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from: '2026-12-24', to: '2026-12-27', persons: 6, property: 'LH23J', max_results: 3 })
+  });
+  const piazzaSearchPayload = await piazzaSearchResponse.json();
+  const piazzaImobCall = upstreamCalls.find((call) => call.url.hostname === 'imob.test');
+  assert.equal(piazzaSearchResponse.status, 200);
+  assert.equal(piazzaSearchPayload.sucesso, true);
+  assert.equal(piazzaSearchPayload.opcoes[0].condominio, 'PIAZZA DIROMA');
+  assert.ok(piazzaImobCall);
+  assert.equal(String(JSON.parse(piazzaImobCall.options.body).condominio), '84');
 
   // Teste 5: Paginação sequencial disjunta (page 1 vs page 2)
   const page1Res = await nativeFetch(`${baseUrl}/api/v1/search`, {

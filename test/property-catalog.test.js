@@ -7,21 +7,34 @@ async function testPropertyCatalog() {
       if (/thermas/i.test(query)) {
         return [{ _id: 'STAYS-TP-1', id: 'TP01', _mstitle: { pt_BR: 'Thermas Place' }, address: { city: 'Caldas Novas' } }];
       }
+      if (/piazza/i.test(query)) {
+        return [{ _id: '6a3499da086cdffd520549e8', id: 'LH23J', _mstitle: { pt_BR: 'CRCN - Piazza diRoma' }, address: { city: 'Caldas Novas' } }];
+      }
       return [];
     },
     getSearchFilters: async () => ({
       properties: [
-        { _id: 'STAYS-TP-1', id: 'TP01', _mstitle: { pt_BR: 'Thermas Place' } }
+        { _id: 'STAYS-TP-1', id: 'TP01', _mstitle: { pt_BR: 'Thermas Place' } },
+        { _id: '6a3499da086cdffd520549e8', id: 'LH23J', _mstitle: { pt_BR: 'CRCN - Piazza diRoma' } }
       ],
       amenities: []
     }),
-    getProperty: async (id) => ({
-      _id: id,
-      _mstitle: { pt_BR: 'Thermas Place' },
-      _msdesc: { pt_BR: 'Condomínio Thermas Place com 7 piscinas termais e sauna.' },
-      address: { city: 'Caldas Novas', region: 'Turista 1' },
-      amenities: ['Piscina aquecida (Compartilhada)', 'Sauna']
-    })
+    getProperty: async (id) => id === '6a3499da086cdffd520549e8'
+      ? {
+          _id: id,
+          id: 'LH23J',
+          _mstitle: { pt_BR: 'CRCN - Piazza diRoma' },
+          _msdesc: { pt_BR: 'Condomínio Piazza diRoma.' },
+          address: { city: 'Caldas Novas', region: 'Solar de Caldas' },
+          amenities: []
+        }
+      : {
+          _id: id,
+          _mstitle: { pt_BR: 'Thermas Place' },
+          _msdesc: { pt_BR: 'Condomínio Thermas Place com 7 piscinas termais e sauna.' },
+          address: { city: 'Caldas Novas', region: 'Turista 1' },
+          amenities: ['Piscina aquecida (Compartilhada)', 'Sauna']
+        }
   };
 
   const catalog = new PropertyCatalog({ staysClient: mockStays });
@@ -29,7 +42,7 @@ async function testPropertyCatalog() {
   // 1. Testa busca de propriedade que está no Stays
   const staysResults = await catalog.searchProperties('Thermas');
   assert.equal(staysResults.length, 1);
-  assert.equal(staysResults[0].nome, 'Thermas Place');
+  assert.equal(staysResults[0].nome, 'THERMAS PLACE');
   assert.equal(staysResults[0].provedor, 'both');
   assert.match(staysResults[0].descricao, /7 piscinas termais/);
 
@@ -54,6 +67,18 @@ async function testPropertyCatalog() {
   assert.equal(resolvedThermas.type, 'hybrid');
   assert.equal(resolvedThermas.staysId, 'STAYS-TP-1');
   assert.equal(resolvedThermas.imobId, '94');
+
+  const piazzaResults = await catalog.searchProperties('Piazza diRoma');
+  assert.equal(piazzaResults.length, 1);
+  assert.equal(piazzaResults[0].nome, 'PIAZZA DIROMA');
+  assert.equal(piazzaResults[0].stays_id, '6a3499da086cdffd520549e8');
+  assert.equal(piazzaResults[0].imob_id, 84);
+  assert.equal(piazzaResults[0].provedor, 'both');
+
+  const resolvedPiazzaAlias = await catalog.resolvePropertyFilter('LH23J');
+  assert.equal(resolvedPiazzaAlias.type, 'hybrid');
+  assert.equal(resolvedPiazzaAlias.staysId, '6a3499da086cdffd520549e8');
+  assert.equal(resolvedPiazzaAlias.imobId, '84');
 
   // 4. Testa resolução por ID numérico puro (Imob)
   const resolvedNumeric = await catalog.resolvePropertyFilter('135');

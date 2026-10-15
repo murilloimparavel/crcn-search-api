@@ -80,6 +80,12 @@ function normalizeLookupKey(value) {
     .trim();
 }
 
+function normalizeCatalogName(value) {
+  // Remove the CRCN brand prefix used in some Stays property titles before
+  // matching the canonical condominium name from the Imob catalog.
+  return normalizeLookupKey(value).replace(/^crcn\s+/, '');
+}
+
 function extractDistinctiveTokens(text) {
   const norm = normalizeLookupKey(text);
   if (!norm) return [];
@@ -246,14 +252,14 @@ class PropertyCatalog {
       seenNames.add(normalizedName);
 
       // Verifica se existe correspondente conhecido no Imob
-      const matchedImob = findUniqueCatalogMatch(name, this.allImobCondominiums);
+      const matchedImob = findUniqueCatalogMatch(normalizeCatalogName(name), this.allImobCondominiums);
 
       results.push({
         id: detail?.id || detail?._id,
         stays_id: detail?._id || detail?.id,
         imob_id: matchedImob ? matchedImob.id : null,
         provedor: matchedImob ? 'both' : 'stays',
-        nome: name,
+        nome: matchedImob ? matchedImob.nome : name,
         descricao: cleanText(detail?._msdesc?.pt_BR || detail?._mssummary?.pt_BR || '').slice(0, 500),
         cidade: cleanText(address.city || 'Caldas Novas'),
         regiao: cleanText(address.region || ''),
@@ -326,7 +332,9 @@ class PropertyCatalog {
         const staysList = Array.isArray(filters?.properties) ? filters.properties : [];
 
         // Prioriza ID exato; para nomes, exige uma correspondência única.
-        const matchedStaysById = staysList.find((property) => String(property?._id || property?.id || '') === raw);
+        const matchedStaysById = staysList.find((property) =>
+          [property?._id, property?.id, property?.val].filter(Boolean).map(String).includes(raw)
+        );
         const staysCandidates = staysList.map((property) => ({
           property,
           nome: cleanText(property?._mstitle?.pt_BR || property?.internalName || '')
@@ -342,7 +350,7 @@ class PropertyCatalog {
     }
 
     // 3. Busca correspondente no Imob
-    const matchLookup = staysName || raw;
+    const matchLookup = normalizeCatalogName(staysName || raw);
     const matchedImob = findUniqueCatalogMatch(matchLookup, this.allImobCondominiums);
 
     if (staysId && matchedImob) {
