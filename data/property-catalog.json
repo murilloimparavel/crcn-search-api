@@ -1,0 +1,1260 @@
+{
+  "schema_version": 1,
+  "description": "Identidades internas CRCN com IDs e proveniência por provedor.",
+  "properties": [
+    {
+      "property_key": "crcn:lacqua-diroma",
+      "canonical_name": "LACQUA DIROMA",
+      "status": "active",
+      "aliases": [],
+      "sources": {
+        "imob": {
+          "id": 86,
+          "name": "LACQUA DIROMA",
+          "status": "active"
+        },
+        "stays": {
+          "id": "6a344a029a142d820bc4fd81",
+          "alternate_ids": [
+            "LH19J"
+          ],
+          "name": "CRCN - Lacqua diRoma",
+          "alternate_names": [],
+          "status": "active"
+        }
+      },
+      "match_status": "verified_exact_name"
+    },
+    {
+      "property_key": "crcn:lagoa-quente-flat-service",
+      "canonical_name": "LAGOA QUENTE FLAT SERVICE",
+      "status": "active",
+      "aliases": [],
+      "sources": {
+        "imob": {
+          "id": 135,
+          "name": "LAGOA QUENTE FLAT SERVICE",
+          "status": "active"
+        },
+        "stays": null
+      },
+      "match_status": "source_only",
+      "region": "Lagoa Quente",
+      "description": "Ao lado do Parque Lagoa Quente, com parque aquático termal próprio, toboáguas, bar molhado e ambiente familiar.",
+      "amenities": [
+        "Piscina ao ar livre (Compartilhada)",
+        "Piscina aquecida (Compartilhada)",
+        "Bar molhado",
+        "Sauna",
+        "Estacionamento"
+      ]
+    },
+    {
+      "property_key": "crcn:sol-das-caldas",
+      "canonical_name": "SOL DAS CALDAS",
+      "status": "active",
+      "aliases": [],
+      "sources": {
+        "imob": {
+          "id": 49,
+          "name": "SOL DAS CALDAS",
+          "status": "active"
+        },
+        "stays": {
+          "id": "6a35437cdb55e2219851aae2",
+          "alternate_ids": [
+            "LI07J"
+          ],
+          "name": "CRCN - Sol das Caldas",
+          "alternate_names": [],
+          "status": "active"
+        }
+      },
+      "match_status": "verified_exact_name"
+    },
+    {
+      "property_key": "crcn:aguas-da-fonte",
+      "canonical_name": "AGUAS DA FONTE",
+      "status": "active",
+      "aliases": [],
+      "sources": {
+        "imob": {
+          "id": 22,
+          "name": "AGUAS DA FONTE",
+          "status": "active"
+        },
+        "stays": null
+      },
+      "match_status": "source_only"
+    },
+    {
+      "property_key": "crcn:aguas-da-serra",
+      "canonical_name": "AGUAS DA SERRA",
+      "status": "active",
+      "aliases": [],
+      "sources": {
+        "imob": {
+          "id": 47,
+          "name": "AGUAS DA SERRA",
+          "status": "active"
+        },
+        "stays": null
+      },
+      "match_status": "source_only"
+    },
+    {
+      "property_key": "crcn:aquarius-residence",
+      "canonical_name": "AQUARIUS RESIDENCE",
+      "status": "active",
+      "aliases": [],
+      "sources": {
+        "imob": {
+          "id": 74,
+          "name": "AQUARIUS RESIDENCE",
+          "status": "active"
+        },
+        "stays": {
+          "id": "6a32a879024c3c27b14a7c05",
+          "alternate_ids": [
+            "LG01J"
+          ],
+          "name": "CRCN - Aquarius Flat",
+          "alternate_names": [],
+          "status": "active"
+        }
+      },
+      "match_status": "verified_manual",
+      "review": {
+        "status": "verified",
+        "reviewed_at": "2026-10-15",
+        "method": "manual_name_and_location_crosscheck",
+        "reason": "Endereço e setor coincidem com o Aquarius Residence: Stays informa Rua Antônio Coelho de Godoy, Setor Oeste; o cadastro público estadual localiza o Aquarius Residence na mesma rua e setor.",
+        "evidence": [
+          "https://goias.gov.br/turismo/wp-content/uploads/sites/4/2022/11/CENSOCALDASNOVAS20222023-3b6.pdf"
+        ]
+      }
+    },
+    {
+      "property_key": "crcn:atrium-thermas",
+      "canonical_name": "ATRIUM THERMAS",
+      "status": "active",
+      "aliases": [],
+      "sources": {
+        "imob": {
+          "id": 15,
+          "name": "ATRIUM THERMAS",
+          "status": "active"
+        },
+        "stays": null
+      },
+      "match_status": "source_only"
+    },
+    {
+      "property_key": "crcn:boulevard-suite-hotel",
+      "canonical_name": "BOULEVARD SUITE HOTEL",
+      "status": "active",
+      "aliases": [],
+      "sources": {
+        "imob": {
+          "id": 16,
+          "name": "BOULEVARD SUITE HOTEL",
+          "status": "active"
+        },
+        "stays": {
+          "id": "6a32b9ee834bbbf9de8a860d",
+          "alternate_ids": [
+            "LG04J"
+          ],
+          "name": "CRCN - Boulevard Súite",
+          "alternate_names": [
+            "CRCN - Boulevard Súite Hotel"
+          ],
+          "status": "active"
+        }
+      },
+      "match_status": "verified_exact_name"
+    },
+    {
+      "property_key": "crcn:caldas-novas-flat-express",
+      "canonical_name": "CALDAS NOVAS FLAT (EXPRESS)",
+      "status": "active",
+      "aliases": [],
+      "sources": {
+        "imob": {
+          "id": 90,
+          "name": "CALDAS NOVAS FLAT (EXPRESS)",
+          "status": "active"
+        },
+        "stays": {
+          "id": "6a92e903d84483512f9b133a",
+          "alternate_ids": [
+            "OB01J"
+          ],
+          "name": "CRCN - Caldas Novas Flat",
+          "alternate_names": [],
+          "status": "active"
+        }
+      },
+      "match_status": "verified_manual",
+      "review": {
+        "status": "verified",
+        "reviewed_at": "2026-10-15",
+        "method": "manual_name_and_location_crosscheck",
+        "reason": "O condomínio Caldas Novas Flat é identificado publicamente como antigo Golden Dolphin Express; Stays cadastra a propriedade na Gleba 02, em Jardim Belvedere, compatível com a unidade Express do catálogo CRCN.",
+        "evidence": [
+          "https://go.olx.com.br/regiao-de-rio-verde-e-caldas-novas/imoveis/flat-mobiliado-centro-de-caldas-novas-1535087526",
+          "https://caldashospedagem.com.br/condominio/90"
+        ]
+      }
+    },
+    {
+      "property_key": "crcn:casa-da-madeira",
+      "canonical_name": "CASA DA MADEIRA",
+      "status": "active",
+      "aliases": [],
+      "sources": {
+        "imob": {
+          "id": 17,
+          "name": "CASA DA MADEIRA",
+          "status": "active"
+        },
+        "stays": {
+          "id": "6a637919245fa5aa45dd8034",
+          "alternate_ids": [
+            "MR01J"
+          ],
+          "name": "CRCN - Casa da Madeira",
+          "alternate_names": [],
+          "status": "active"
+        }
+      },
+      "match_status": "verified_exact_name"
+    },
+    {
+      "property_key": "crcn:diroma-fiori",
+      "canonical_name": "DIROMA FIORI",
+      "status": "active",
+      "aliases": [],
+      "sources": {
+        "imob": {
+          "id": 87,
+          "name": "DIROMA FIORI",
+          "status": "active"
+        },
+        "stays": null
+      },
+      "match_status": "source_only"
+    },
+    {
+      "property_key": "crcn:diroma-resort",
+      "canonical_name": "DIROMA RESORT",
+      "status": "active",
+      "aliases": [],
+      "sources": {
+        "imob": {
+          "id": 88,
+          "name": "DIROMA RESORT",
+          "status": "active"
+        },
+        "stays": null
+      },
+      "match_status": "source_only"
+    },
+    {
+      "property_key": "crcn:ecologic-park",
+      "canonical_name": "ECOLOGIC PARK",
+      "status": "active",
+      "aliases": [],
+      "sources": {
+        "imob": {
+          "id": 72,
+          "name": "ECOLOGIC PARK",
+          "status": "active"
+        },
+        "stays": {
+          "id": "6a32c8982596623cc0576834",
+          "alternate_ids": [
+            "LG08J"
+          ],
+          "name": "CRCN - Ecologic Park",
+          "alternate_names": [],
+          "status": "active"
+        }
+      },
+      "match_status": "verified_exact_name"
+    },
+    {
+      "property_key": "crcn:eldorado-flat-service",
+      "canonical_name": "ELDORADO FLAT SERVICE",
+      "status": "active",
+      "aliases": [],
+      "sources": {
+        "imob": {
+          "id": 13,
+          "name": "ELDORADO FLAT SERVICE",
+          "status": "active"
+        },
+        "stays": {
+          "id": "6a32e8a5d87874a559e67e99",
+          "alternate_ids": [
+            "LG13J"
+          ],
+          "name": "CRCN - Eldorado Flat Service",
+          "alternate_names": [],
+          "status": "active"
+        }
+      },
+      "match_status": "verified_exact_name"
+    },
+    {
+      "property_key": "crcn:eldorado-park",
+      "canonical_name": "ELDORADO PARK",
+      "status": "active",
+      "aliases": [],
+      "sources": {
+        "imob": {
+          "id": 12,
+          "name": "ELDORADO PARK",
+          "status": "active"
+        },
+        "stays": {
+          "id": "6a32ef0309f3d524370f8bf3",
+          "alternate_ids": [
+            "LG15J"
+          ],
+          "name": "CRCN - Eldorado Thermas Park",
+          "alternate_names": [],
+          "status": "active"
+        }
+      },
+      "match_status": "verified_manual",
+      "review": {
+        "status": "verified",
+        "reviewed_at": "2026-10-15",
+        "method": "manual_name_and_location_crosscheck",
+        "reason": "O site oficial do empreendimento usa “Eldorado Thermas Park” como nome do Eldorado Park.",
+        "evidence": [
+          "https://eldoradopark.com.br/localizacao"
+        ]
+      }
+    },
+    {
+      "property_key": "crcn:everest-flat-service",
+      "canonical_name": "EVEREST FLAT SERVICE",
+      "status": "active",
+      "aliases": [],
+      "sources": {
+        "imob": {
+          "id": 44,
+          "name": "EVEREST FLAT SERVICE",
+          "status": "active"
+        },
+        "stays": null
+      },
+      "match_status": "source_only",
+      "region": "Centro",
+      "description": "Localizado no centro de Caldas Novas, com fácil acesso ao comércio, piscinas de águas termais, sauna e recepção 24h.",
+      "amenities": [
+        "Piscina aquecida (Compartilhada)",
+        "Sauna",
+        "Estacionamento",
+        "Elevador",
+        "Recepção 24 horas"
+      ]
+    },
+    {
+      "property_key": "crcn:evian-thermas-residence",
+      "canonical_name": "EVIAN THERMAS RESIDENCE",
+      "status": "active",
+      "aliases": [],
+      "sources": {
+        "imob": {
+          "id": 107,
+          "name": "EVIAN THERMAS RESIDENCE",
+          "status": "active"
+        },
+        "stays": {
+          "id": "6a33eb67e8a3f777605767b5",
+          "alternate_ids": [
+            "LH04J"
+          ],
+          "name": "CRCN - Evian Thermas Residence",
+          "alternate_names": [],
+          "status": "active"
+        }
+      },
+      "match_status": "verified_exact_name"
+    },
+    {
+      "property_key": "crcn:fiore-prime",
+      "canonical_name": "FIORE PRIME",
+      "status": "active",
+      "aliases": [],
+      "sources": {
+        "imob": {
+          "id": 55,
+          "name": "FIORE PRIME",
+          "status": "active"
+        },
+        "stays": null
+      },
+      "match_status": "source_only"
+    },
+    {
+      "property_key": "crcn:golden-dolphin-g-hotel",
+      "canonical_name": "GOLDEN DOLPHIN G HOTEL",
+      "status": "active",
+      "aliases": [],
+      "sources": {
+        "imob": {
+          "id": 89,
+          "name": "GOLDEN DOLPHIN G HOTEL",
+          "status": "active"
+        },
+        "stays": {
+          "id": "6a343986e8b091c491d6591d",
+          "alternate_ids": [
+            "LH14J"
+          ],
+          "name": "CRCN - Golden Dolphin Grand Hotel",
+          "alternate_names": [],
+          "status": "active"
+        }
+      },
+      "match_status": "verified_manual",
+      "review": {
+        "status": "verified",
+        "reviewed_at": "2026-10-15",
+        "method": "manual_name_and_location_crosscheck",
+        "reason": "A página pública do Golden Dolphin G Hotel identifica o mesmo empreendimento como Golden Dolphin Grand Hotel; o endereço cadastral público também coincide com Avenida Elias Bufaiçal, Gleba 01, Jardim Belvedere.",
+        "evidence": [
+          "https://temporadacaldasnovas.com/hoteis/golden-dolphin-g-hotel/",
+          "https://gelderimoveis.com.br/imovel/3134377/suite-temporada-caldas-novas-go-jardim-belvedere-golden-dolphin-grand-hotel"
+        ]
+      }
+    },
+    {
+      "property_key": "crcn:golden-dolphin-supreme",
+      "canonical_name": "GOLDEN DOLPHIN SUPREME",
+      "status": "active",
+      "aliases": [],
+      "sources": {
+        "imob": {
+          "id": 91,
+          "name": "GOLDEN DOLPHIN SUPREME",
+          "status": "active"
+        },
+        "stays": {
+          "id": "6a4e914dcdba15f2fe23abfe",
+          "alternate_ids": [
+            "MB01J"
+          ],
+          "name": "CRCN - Golden Dolphin Supreme",
+          "alternate_names": [],
+          "status": "active"
+        }
+      },
+      "match_status": "verified_exact_name",
+      "region": "Turista 1",
+      "description": "Condomínio de alto padrão com complexo aquático completo, piscinas termais para adultos e crianças, sauna, toboáguas e lanchonete.",
+      "amenities": [
+        "Piscina ao ar livre (Compartilhada)",
+        "Piscina aquecida (Compartilhada)",
+        "Sauna",
+        "Estacionamento",
+        "Elevador",
+        "Recepção 24 horas"
+      ]
+    },
+    {
+      "property_key": "crcn:jardins-das-thermas",
+      "canonical_name": "JARDINS DAS THERMAS",
+      "status": "active",
+      "aliases": [],
+      "sources": {
+        "imob": {
+          "id": 21,
+          "name": "JARDINS DAS THERMAS",
+          "status": "active"
+        },
+        "stays": null
+      },
+      "match_status": "source_only"
+    },
+    {
+      "property_key": "crcn:lagoa-quente-hotel",
+      "canonical_name": "LAGOA QUENTE HOTEL",
+      "status": "active",
+      "aliases": [],
+      "sources": {
+        "imob": {
+          "id": 133,
+          "name": "LAGOA QUENTE HOTEL",
+          "status": "active"
+        },
+        "stays": {
+          "id": "6a3493f0aec9e9b4b1190ca4",
+          "alternate_ids": [
+            "LH21J"
+          ],
+          "name": "CRCN - Lagoa Quente Hotel",
+          "alternate_names": [],
+          "status": "active"
+        }
+      },
+      "match_status": "verified_exact_name"
+    },
+    {
+      "property_key": "crcn:le-jardin-suites",
+      "canonical_name": "LE JARDIN SUITES",
+      "status": "active",
+      "aliases": [],
+      "sources": {
+        "imob": {
+          "id": 9,
+          "name": "LE JARDIN SUITES",
+          "status": "active"
+        },
+        "stays": null
+      },
+      "match_status": "source_only"
+    },
+    {
+      "property_key": "crcn:millenium-residence",
+      "canonical_name": "MILLENIUM RESIDENCE",
+      "status": "active",
+      "aliases": [],
+      "sources": {
+        "imob": {
+          "id": 95,
+          "name": "MILLENIUM RESIDENCE",
+          "status": "active"
+        },
+        "stays": null
+      },
+      "match_status": "source_only"
+    },
+    {
+      "property_key": "crcn:park-veredas-rio-quente",
+      "canonical_name": "PARK VEREDAS - RIO QUENTE",
+      "status": "active",
+      "aliases": [],
+      "sources": {
+        "imob": {
+          "id": 200,
+          "name": "PARK VEREDAS - RIO QUENTE",
+          "status": "active"
+        },
+        "stays": null
+      },
+      "match_status": "source_only"
+    },
+    {
+      "property_key": "crcn:piazza-diroma",
+      "canonical_name": "PIAZZA DIROMA",
+      "status": "active",
+      "aliases": [],
+      "sources": {
+        "imob": {
+          "id": 84,
+          "name": "PIAZZA DIROMA",
+          "status": "active"
+        },
+        "stays": {
+          "id": "6a3499da086cdffd520549e8",
+          "alternate_ids": [
+            "LH23J"
+          ],
+          "name": "CRCN - Piazza diRoma",
+          "alternate_names": [],
+          "status": "active"
+        }
+      },
+      "match_status": "verified_exact_name"
+    },
+    {
+      "property_key": "crcn:prive-das-thermas-1",
+      "canonical_name": "PRIVE DAS THERMAS 1",
+      "status": "active",
+      "aliases": [],
+      "sources": {
+        "imob": {
+          "id": 103,
+          "name": "PRIVE DAS THERMAS 1",
+          "status": "active"
+        },
+        "stays": null
+      },
+      "match_status": "source_only"
+    },
+    {
+      "property_key": "crcn:prive-das-thermas-2",
+      "canonical_name": "PRIVE DAS THERMAS 2",
+      "status": "active",
+      "aliases": [],
+      "sources": {
+        "imob": {
+          "id": 102,
+          "name": "PRIVE DAS THERMAS 2",
+          "status": "active"
+        },
+        "stays": {
+          "id": "6a34a1a4086cdffd520598bb",
+          "alternate_ids": [
+            "LH25J"
+          ],
+          "name": "CRCN - Privé das Thermas II",
+          "alternate_names": [],
+          "status": "active"
+        }
+      },
+      "match_status": "verified_normalized_name"
+    },
+    {
+      "property_key": "crcn:recanto-do-bosque",
+      "canonical_name": "RECANTO DO BOSQUE",
+      "status": "active",
+      "aliases": [],
+      "sources": {
+        "imob": {
+          "id": 105,
+          "name": "RECANTO DO BOSQUE",
+          "status": "active"
+        },
+        "stays": {
+          "id": "6a34b6c3aec9e9b4b11b48d9",
+          "alternate_ids": [
+            "LI01J"
+          ],
+          "name": "CRCN - Recanto do Bosque",
+          "alternate_names": [],
+          "status": "active"
+        }
+      },
+      "match_status": "verified_exact_name"
+    },
+    {
+      "property_key": "crcn:rio-caldas",
+      "canonical_name": "RIO CALDAS",
+      "status": "active",
+      "aliases": [],
+      "sources": {
+        "imob": {
+          "id": 39,
+          "name": "RIO CALDAS",
+          "status": "active"
+        },
+        "stays": null
+      },
+      "match_status": "source_only"
+    },
+    {
+      "property_key": "crcn:royal-park",
+      "canonical_name": "ROYAL PARK",
+      "status": "active",
+      "aliases": [],
+      "sources": {
+        "imob": {
+          "id": 96,
+          "name": "ROYAL PARK",
+          "status": "active"
+        },
+        "stays": null
+      },
+      "match_status": "source_only"
+    },
+    {
+      "property_key": "crcn:spazzio-diroma",
+      "canonical_name": "SPAZZIO DIROMA",
+      "status": "active",
+      "aliases": [],
+      "sources": {
+        "imob": {
+          "id": 83,
+          "name": "SPAZZIO DIROMA",
+          "status": "active"
+        },
+        "stays": null
+      },
+      "match_status": "source_only"
+    },
+    {
+      "property_key": "crcn:splendor-thermas",
+      "canonical_name": "SPLENDOR THERMAS",
+      "status": "active",
+      "aliases": [],
+      "sources": {
+        "imob": {
+          "id": 45,
+          "name": "SPLENDOR THERMAS",
+          "status": "active"
+        },
+        "stays": {
+          "id": "6a354fd88e4be4f7a27f0697",
+          "alternate_ids": [
+            "LI11J"
+          ],
+          "name": "CRCN - Splendor Thermas",
+          "alternate_names": [],
+          "status": "active"
+        }
+      },
+      "match_status": "verified_exact_name"
+    },
+    {
+      "property_key": "crcn:thermas-das-caldas",
+      "canonical_name": "THERMAS DAS CALDAS",
+      "status": "active",
+      "aliases": [],
+      "sources": {
+        "imob": {
+          "id": 43,
+          "name": "THERMAS DAS CALDAS",
+          "status": "active"
+        },
+        "stays": {
+          "id": "6a3557c3ed75d16e024fcc4d",
+          "alternate_ids": [
+            "LI13J"
+          ],
+          "name": "CRCN - Thermas das Caldas",
+          "alternate_names": [],
+          "status": "active"
+        }
+      },
+      "match_status": "verified_exact_name"
+    },
+    {
+      "property_key": "crcn:thermas-do-bandeirante",
+      "canonical_name": "THERMAS DO BANDEIRANTE",
+      "status": "active",
+      "aliases": [],
+      "sources": {
+        "imob": {
+          "id": 106,
+          "name": "THERMAS DO BANDEIRANTE",
+          "status": "active"
+        },
+        "stays": null
+      },
+      "match_status": "source_only"
+    },
+    {
+      "property_key": "crcn:thermas-place",
+      "canonical_name": "THERMAS PLACE",
+      "status": "active",
+      "aliases": [],
+      "sources": {
+        "imob": {
+          "id": 94,
+          "name": "THERMAS PLACE",
+          "status": "active"
+        },
+        "stays": {
+          "id": "6a3560da78b17e1b6cffee9b",
+          "alternate_ids": [
+            "LI15J"
+          ],
+          "name": "CRCN - Thermas Place",
+          "alternate_names": [],
+          "status": "active"
+        }
+      },
+      "match_status": "verified_exact_name"
+    },
+    {
+      "property_key": "crcn:vitoria-das-thermas",
+      "canonical_name": "VITORIA DAS THERMAS",
+      "status": "active",
+      "aliases": [],
+      "sources": {
+        "imob": {
+          "id": 101,
+          "name": "VITORIA DAS THERMAS",
+          "status": "active"
+        },
+        "stays": {
+          "id": "6a7341cd6f8b60a63ae2331b",
+          "alternate_ids": [
+            "ND01J"
+          ],
+          "name": "CRCN - Vitória das Thermas",
+          "alternate_names": [],
+          "status": "active"
+        }
+      },
+      "match_status": "verified_exact_name"
+    },
+    {
+      "property_key": "crcn:casa-com-piscina",
+      "canonical_name": "CRCN - Casa com Piscina",
+      "status": "active",
+      "aliases": [],
+      "sources": {
+        "imob": null,
+        "stays": {
+          "id": "6a32c14c834bbbf9de8b2ba9",
+          "alternate_ids": [
+            "LG06J"
+          ],
+          "name": "CRCN - Casa com Piscina",
+          "alternate_names": [],
+          "status": "active"
+        }
+      },
+      "match_status": "pending_review",
+      "review": {
+        "status": "unresolved_no_confirmed_pair",
+        "reviewed_at": "2026-10-15",
+        "method": "name_and_stays_location_review",
+        "reason": "O nome descreve uma casa com piscina; “Casa da Madeira” compartilha apenas o termo genérico Casa. Nenhum vínculo foi confirmado.",
+        "evidence": []
+      }
+    },
+    {
+      "property_key": "crcn:ecologic-ville",
+      "canonical_name": "CRCN - Ecologic Ville",
+      "status": "active",
+      "aliases": [],
+      "sources": {
+        "imob": null,
+        "stays": {
+          "id": "6a32ce8bbf733c817978821d",
+          "alternate_ids": [
+            "LG10J"
+          ],
+          "name": "CRCN - Ecologic Ville",
+          "alternate_names": [],
+          "status": "active"
+        }
+      },
+      "match_status": "pending_review",
+      "review": {
+        "status": "confirmed_distinct_from_candidate",
+        "reviewed_at": "2026-10-15",
+        "method": "public_official_catalog_crosscheck",
+        "reason": "Ecologic Ville e Ecologic Park aparecem como empreendimentos distintos no cadastro municipal de pontos (CP208 e CP207). Não vincular ao ID Imob 72.",
+        "evidence": [
+          "https://www.caldasnovas.go.gov.br/wp-content/uploads/2020/01/1.Edital-CP002.pdf"
+        ]
+      }
+    },
+    {
+      "property_key": "crcn:the-villeneuve-residence",
+      "canonical_name": "CRCN - The Villeneuve Residence",
+      "status": "active",
+      "aliases": [],
+      "sources": {
+        "imob": null,
+        "stays": {
+          "id": "6a35717bb8ccf9fb21f57b2c",
+          "alternate_ids": [
+            "LI24J"
+          ],
+          "name": "CRCN - The Villeneuve Residence",
+          "alternate_names": [],
+          "status": "active"
+        }
+      },
+      "match_status": "pending_review",
+      "review": {
+        "status": "unresolved_no_candidate",
+        "reviewed_at": "2026-10-15",
+        "method": "full_name_catalog_comparison",
+        "reason": "Nenhum condomínio Imob do snapshot de 37 registros teve nome suficientemente semelhante para propor vínculo.",
+        "evidence": []
+      }
+    },
+    {
+      "property_key": "crcn:amethist-tower",
+      "canonical_name": "CRCN - Amethist Tower",
+      "status": "active",
+      "aliases": [],
+      "sources": {
+        "imob": null,
+        "stays": {
+          "id": "6a690a26f98f4b0dc2168ba4",
+          "alternate_ids": [
+            "MV01J"
+          ],
+          "name": "CRCN - Amethist Tower",
+          "alternate_names": [],
+          "status": "active"
+        }
+      },
+      "match_status": "pending_review",
+      "review": {
+        "status": "unresolved_no_candidate",
+        "reviewed_at": "2026-10-15",
+        "method": "full_name_catalog_comparison",
+        "reason": "Nenhum condomínio Imob do snapshot de 37 registros teve nome suficientemente semelhante para propor vínculo.",
+        "evidence": []
+      }
+    },
+    {
+      "property_key": "crcn:pontal-do-lago",
+      "canonical_name": "CRCN - Pontal do Lago",
+      "status": "active",
+      "aliases": [],
+      "sources": {
+        "imob": null,
+        "stays": {
+          "id": "6a7203bccb7776374a3688fc",
+          "alternate_ids": [
+            "NC01J"
+          ],
+          "name": "CRCN - Pontal do Lago",
+          "alternate_names": [],
+          "status": "active"
+        }
+      },
+      "match_status": "pending_review",
+      "review": {
+        "status": "unresolved_no_candidate",
+        "reviewed_at": "2026-10-15",
+        "method": "full_name_catalog_comparison",
+        "reason": "Nenhum condomínio Imob do snapshot de 37 registros teve nome suficientemente semelhante para propor vínculo.",
+        "evidence": []
+      }
+    },
+    {
+      "property_key": "crcn:diroma-internacional-resorts",
+      "canonical_name": "CRCN - DiRoma Internacional Resorts",
+      "status": "active",
+      "aliases": [],
+      "sources": {
+        "imob": null,
+        "stays": {
+          "id": "6a735481250ea6a4196062dc",
+          "alternate_ids": [
+            "ND03J"
+          ],
+          "name": "CRCN - DiRoma Internacional Resorts",
+          "alternate_names": [],
+          "status": "active"
+        }
+      },
+      "match_status": "pending_review",
+      "review": {
+        "status": "unresolved_possible_related_brand",
+        "reviewed_at": "2026-10-15",
+        "method": "public_catalog_crosscheck",
+        "reason": "Há referências públicas ao empreendimento com o nome próprio DiRoma Internacional Resort; o catálogo CRCN lista DiRoma Resort separadamente. O vínculo não foi confirmado e permanece pendente.",
+        "evidence": [
+          "https://goias.gov.br/turismo/wp-content/uploads/sites/4/2022/11/CENSOCALDASNOVAS20222023-3b6.pdf",
+          "https://reservascrcn.com.br/condominio/88"
+        ]
+      }
+    }
+  ],
+  "last_sync": "2026-10-15T19:11:00.010Z",
+  "reconciliation": {
+    "synced_at": "2026-10-15T19:05:24.585Z",
+    "imob_seen": 37,
+    "stays_seen": 26,
+    "updated": [
+      "crcn:lacqua-diroma",
+      "crcn:lagoa-quente-flat-service",
+      "crcn:sol-das-caldas",
+      "crcn:aguas-da-fonte",
+      "crcn:aguas-da-serra",
+      "crcn:aquarius-residence",
+      "crcn:atrium-thermas",
+      "crcn:boulevard-suite-hotel",
+      "crcn:caldas-novas-flat-express",
+      "crcn:casa-da-madeira",
+      "crcn:diroma-fiori",
+      "crcn:diroma-resort",
+      "crcn:ecologic-park",
+      "crcn:eldorado-flat-service",
+      "crcn:eldorado-park",
+      "crcn:everest-flat-service",
+      "crcn:evian-thermas-residence",
+      "crcn:fiore-prime",
+      "crcn:golden-dolphin-g-hotel",
+      "crcn:golden-dolphin-supreme",
+      "crcn:jardins-das-thermas",
+      "crcn:lagoa-quente-hotel",
+      "crcn:le-jardin-suites",
+      "crcn:millenium-residence",
+      "crcn:park-veredas-rio-quente",
+      "crcn:piazza-diroma",
+      "crcn:prive-das-thermas-1",
+      "crcn:prive-das-thermas-2",
+      "crcn:recanto-do-bosque",
+      "crcn:rio-caldas",
+      "crcn:royal-park",
+      "crcn:spazzio-diroma",
+      "crcn:splendor-thermas",
+      "crcn:thermas-das-caldas",
+      "crcn:thermas-do-bandeirante",
+      "crcn:thermas-place",
+      "crcn:vitoria-das-thermas",
+      "crcn:aquarius-flat",
+      "crcn:boulevard-suite",
+      "crcn:casa-com-piscina",
+      "crcn:ecologic-park",
+      "crcn:ecologic-ville",
+      "crcn:eldorado-flat-service",
+      "crcn:eldorado-thermas-park",
+      "crcn:evian-thermas-residence",
+      "crcn:golden-dolphin-grand-hotel",
+      "crcn:lacqua-diroma",
+      "crcn:lagoa-quente-hotel",
+      "crcn:piazza-diroma",
+      "crcn:prive-das-thermas-ii",
+      "crcn:recanto-do-bosque",
+      "crcn:sol-das-caldas",
+      "crcn:splendor-thermas",
+      "crcn:thermas-das-caldas",
+      "crcn:thermas-place",
+      "crcn:the-villeneuve-residence",
+      "crcn:golden-dolphin-supreme",
+      "crcn:casa-da-madeira",
+      "crcn:amethist-tower",
+      "crcn:pontal-do-lago",
+      "crcn:vitoria-das-thermas",
+      "crcn:diroma-internacional-resorts",
+      "crcn:caldas-novas-flat"
+    ],
+    "added": [],
+    "pending": [
+      {
+        "source": "stays",
+        "id": "6a32a879024c3c27b14a7c05",
+        "name": "CRCN - Aquarius Flat",
+        "reason": "possible_cross_provider_match",
+        "suggestions": [
+          {
+            "property_key": "crcn:aquarius-residence",
+            "canonical_name": "AQUARIUS RESIDENCE",
+            "score": 1
+          }
+        ]
+      },
+      {
+        "source": "stays",
+        "id": "6a32b9ee834bbbf9de8a860d",
+        "name": "CRCN - Boulevard Súite",
+        "reason": "possible_cross_provider_match",
+        "suggestions": [
+          {
+            "property_key": "crcn:boulevard-suite-hotel",
+            "canonical_name": "BOULEVARD SUITE HOTEL",
+            "score": 1
+          }
+        ]
+      },
+      {
+        "source": "stays",
+        "id": "6a32c14c834bbbf9de8b2ba9",
+        "name": "CRCN - Casa com Piscina",
+        "reason": "possible_cross_provider_match",
+        "suggestions": [
+          {
+            "property_key": "crcn:casa-da-madeira",
+            "canonical_name": "CASA DA MADEIRA",
+            "score": 0.25
+          }
+        ]
+      },
+      {
+        "source": "stays",
+        "id": "6a32ce8bbf733c817978821d",
+        "name": "CRCN - Ecologic Ville",
+        "reason": "possible_cross_provider_match",
+        "suggestions": [
+          {
+            "property_key": "crcn:ecologic-park",
+            "canonical_name": "ECOLOGIC PARK",
+            "score": 0.333
+          }
+        ]
+      },
+      {
+        "source": "stays",
+        "id": "6a32ef0309f3d524370f8bf3",
+        "name": "CRCN - Eldorado Thermas Park",
+        "reason": "possible_cross_provider_match",
+        "suggestions": [
+          {
+            "property_key": "crcn:eldorado-park",
+            "canonical_name": "ELDORADO PARK",
+            "score": 1
+          },
+          {
+            "property_key": "crcn:eldorado-flat-service",
+            "canonical_name": "ELDORADO FLAT SERVICE",
+            "score": 0.5
+          },
+          {
+            "property_key": "crcn:ecologic-park",
+            "canonical_name": "ECOLOGIC PARK",
+            "score": 0.333
+          }
+        ]
+      },
+      {
+        "source": "stays",
+        "id": "6a343986e8b091c491d6591d",
+        "name": "CRCN - Golden Dolphin Grand Hotel",
+        "reason": "possible_cross_provider_match",
+        "suggestions": [
+          {
+            "property_key": "crcn:golden-dolphin-g-hotel",
+            "canonical_name": "GOLDEN DOLPHIN G HOTEL",
+            "score": 0.667
+          },
+          {
+            "property_key": "crcn:golden-dolphin-supreme",
+            "canonical_name": "GOLDEN DOLPHIN SUPREME",
+            "score": 0.5
+          }
+        ]
+      },
+      {
+        "source": "stays",
+        "id": "6a34a1a4086cdffd520598bb",
+        "name": "CRCN - Privé das Thermas II",
+        "reason": "possible_cross_provider_match",
+        "suggestions": [
+          {
+            "property_key": "crcn:prive-das-thermas-1",
+            "canonical_name": "PRIVE DAS THERMAS 1",
+            "score": 1
+          },
+          {
+            "property_key": "crcn:prive-das-thermas-2",
+            "canonical_name": "PRIVE DAS THERMAS 2",
+            "score": 1
+          }
+        ]
+      },
+      {
+        "source": "stays",
+        "id": "6a35717bb8ccf9fb21f57b2c",
+        "name": "CRCN - The Villeneuve Residence",
+        "reason": "unmatched_source_record",
+        "suggestions": []
+      },
+      {
+        "source": "stays",
+        "id": "6a690a26f98f4b0dc2168ba4",
+        "name": "CRCN - Amethist Tower",
+        "reason": "unmatched_source_record",
+        "suggestions": []
+      },
+      {
+        "source": "stays",
+        "id": "6a7203bccb7776374a3688fc",
+        "name": "CRCN - Pontal do Lago",
+        "reason": "unmatched_source_record",
+        "suggestions": []
+      },
+      {
+        "source": "stays",
+        "id": "6a735481250ea6a4196062dc",
+        "name": "CRCN - DiRoma Internacional Resorts",
+        "reason": "possible_cross_provider_match",
+        "suggestions": [
+          {
+            "property_key": "crcn:diroma-resort",
+            "canonical_name": "DIROMA RESORT",
+            "score": 0.333
+          },
+          {
+            "property_key": "crcn:lacqua-diroma",
+            "canonical_name": "LACQUA DIROMA",
+            "score": 0.25
+          },
+          {
+            "property_key": "crcn:diroma-fiori",
+            "canonical_name": "DIROMA FIORI",
+            "score": 0.25
+          }
+        ]
+      },
+      {
+        "source": "stays",
+        "id": "6a92e903d84483512f9b133a",
+        "name": "CRCN - Caldas Novas Flat",
+        "reason": "possible_cross_provider_match",
+        "suggestions": [
+          {
+            "property_key": "crcn:caldas-novas-flat-express",
+            "canonical_name": "CALDAS NOVAS FLAT (EXPRESS)",
+            "score": 0.667
+          },
+          {
+            "property_key": "crcn:thermas-das-caldas",
+            "canonical_name": "THERMAS DAS CALDAS",
+            "score": 0.5
+          },
+          {
+            "property_key": "crcn:sol-das-caldas",
+            "canonical_name": "SOL DAS CALDAS",
+            "score": 0.333
+          }
+        ]
+      }
+    ],
+    "missing_from_imob": [],
+    "missing_from_stays": []
+  },
+  "pending_matches": [
+    {
+      "source": "stays",
+      "id": "6a32c14c834bbbf9de8b2ba9",
+      "name": "CRCN - Casa com Piscina",
+      "reason": "unmatched_source_record",
+      "suggestions": []
+    },
+    {
+      "source": "stays",
+      "id": "6a32ce8bbf733c817978821d",
+      "name": "CRCN - Ecologic Ville",
+      "reason": "possible_cross_provider_match",
+      "suggestions": [
+        {
+          "property_key": "crcn:ecologic-park",
+          "canonical_name": "ECOLOGIC PARK",
+          "score": 0.333
+        }
+      ]
+    },
+    {
+      "source": "stays",
+      "id": "6a35717bb8ccf9fb21f57b2c",
+      "name": "CRCN - The Villeneuve Residence",
+      "reason": "unmatched_source_record",
+      "suggestions": []
+    },
+    {
+      "source": "stays",
+      "id": "6a690a26f98f4b0dc2168ba4",
+      "name": "CRCN - Amethist Tower",
+      "reason": "unmatched_source_record",
+      "suggestions": []
+    },
+    {
+      "source": "stays",
+      "id": "6a7203bccb7776374a3688fc",
+      "name": "CRCN - Pontal do Lago",
+      "reason": "unmatched_source_record",
+      "suggestions": []
+    },
+    {
+      "source": "stays",
+      "id": "6a735481250ea6a4196062dc",
+      "name": "CRCN - DiRoma Internacional Resorts",
+      "reason": "possible_cross_provider_match",
+      "suggestions": [
+        {
+          "property_key": "crcn:diroma-resort",
+          "canonical_name": "DIROMA RESORT",
+          "score": 0.333
+        }
+      ]
+    }
+  ]
+}
