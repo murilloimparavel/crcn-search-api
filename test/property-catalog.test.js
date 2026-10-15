@@ -47,6 +47,9 @@ async function testPropertyCatalog() {
   assert.equal(resolvedGolden.type, 'imob_only');
   assert.equal(resolvedGolden.imobId, '91');
 
+  const ambiguousGolden = await catalog.resolvePropertyFilter('Golden Dolphin');
+  assert.equal(ambiguousGolden.type, 'unknown');
+
   const resolvedThermas = await catalog.resolvePropertyFilter('Thermas Place');
   assert.equal(resolvedThermas.type, 'hybrid');
   assert.equal(resolvedThermas.staysId, 'STAYS-TP-1');

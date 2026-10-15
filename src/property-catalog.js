@@ -83,7 +83,7 @@ function normalizeLookupKey(value) {
 function extractDistinctiveTokens(text) {
   const norm = normalizeLookupKey(text);
   if (!norm) return [];
-  return norm.split(/\s+/).filter(t => t.length > 2 && !STOP_WORDS.has(t));
+  return [...new Set(norm.split(/\s+/).filter(t => t.length > 0 && !STOP_WORDS.has(t)))];
 }
 
 function calculateMatchScore(textA, textB) {
@@ -149,13 +149,20 @@ function scoreCatalogName(query, candidate) {
   const candidateTokens = extractDistinctiveTokens(candidateKey);
   if (!queryTokens.length || !candidateTokens.length) return 0;
 
-  const matchedTokens = queryTokens.filter((token) => candidateTokens.some((candidateToken) => {
-    if (candidateToken === token || candidateToken.startsWith(token)) return true;
-    if (token.length >= 4 && candidateToken.includes(token)) return true;
-    if (token.length < 5 || candidateToken.length < 5) return false;
-    const maxDistance = Math.max(token.length, candidateToken.length) >= 8 ? 2 : 1;
-    return editDistance(token, candidateToken) <= maxDistance;
-  }));
+  const usedCandidateTokens = new Set();
+  const matchedTokens = queryTokens.filter((token) => {
+    const matchedCandidate = candidateTokens.find((candidateToken) => {
+      if (usedCandidateTokens.has(candidateToken)) return false;
+      if (candidateToken === token || candidateToken.startsWith(token)) return true;
+      if (token.length >= 4 && candidateToken.includes(token)) return true;
+      if (token.length < 5 || candidateToken.length < 5) return false;
+      const maxDistance = Math.max(token.length, candidateToken.length) >= 8 ? 2 : 1;
+      return editDistance(token, candidateToken) <= maxDistance;
+    });
+    if (!matchedCandidate) return false;
+    usedCandidateTokens.add(matchedCandidate);
+    return true;
+  });
   if (matchedTokens.length === queryTokens.length) {
     return 0.76 + 0.2 * (queryTokens.length / candidateTokens.length);
   }
@@ -239,9 +246,7 @@ class PropertyCatalog {
       seenNames.add(normalizedName);
 
       // Verifica se existe correspondente conhecido no Imob
-      const matchedImob = this.allImobCondominiums.find((imob) => {
-        return calculateMatchScore(imob.nome, name) >= 0.6;
-      });
+      const matchedImob = findUniqueCatalogMatch(name, this.allImobCondominiums);
 
       results.push({
         id: detail?.id || detail?._id,
@@ -263,7 +268,8 @@ class PropertyCatalog {
       if (!normalizedQuery || matchScore >= 0.4) {
         // Se já foi incluído via Stays, não duplica
         const alreadyIncluded = results.some((item) => {
-          return calculateMatchScore(item.nome, imob.nome) >= 0.6;
+          if (normalizeLookupKey(item.nome) === normalizeLookupKey(imob.nome)) return true;
+          return item.imob_id && String(item.imob_id) === String(imob.id);
         });
 
         if (!alreadyIncluded) {
@@ -283,7 +289,11 @@ class PropertyCatalog {
       }
     }
 
-    return results.slice(0, 5);
+    return results
+      .map((item, index) => ({ item, index, score: normalizedQuery ? scoreCatalogName(query, item.nome) : 0 }))
+      .sort((left, right) => right.score - left.score || left.index - right.index)
+      .slice(0, 5)
+      .map(({ item }) => item);
   }
 
   // Resolve a intenção de propriedade enviada em POST /api/v1/search
@@ -292,7 +302,6 @@ class PropertyCatalog {
     if (!propertyInput) return null;
 
     const raw = String(propertyInput).trim();
-    const normalized = normalizeLookupKey(raw);
     const isNumeric = /^\d+$/.test(raw);
 
     // 1. Se for ID numérico puro, verifica se é Imob direto
@@ -316,13 +325,13 @@ class PropertyCatalog {
         const filters = await this.staysClient.getSearchFilters().catch(() => null);
         const staysList = Array.isArray(filters?.properties) ? filters.properties : [];
 
-        // Match por ID ou por similaridade de Nome
-        const matchedStays = staysList.find((p) => {
-          const idMatch = String(p?._id || p?.id || '') === raw;
-          if (idMatch) return true;
-          const pName = p?._mstitle?.pt_BR || p?.internalName || '';
-          return calculateMatchScore(pName, raw) >= 0.6;
-        });
+        // Prioriza ID exato; para nomes, exige uma correspondência única.
+        const matchedStaysById = staysList.find((property) => String(property?._id || property?.id || '') === raw);
+        const staysCandidates = staysList.map((property) => ({
+          property,
+          nome: cleanText(property?._mstitle?.pt_BR || property?.internalName || '')
+        }));
+        const matchedStays = matchedStaysById || findUniqueCatalogMatch(raw, staysCandidates)?.property;
 
         if (matchedStays) {
           staysId = matchedStays._id || matchedStays.id;
