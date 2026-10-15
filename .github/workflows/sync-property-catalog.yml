@@ -43,8 +43,8 @@ jobs:
           branch: automation/property-catalog-sync
           delete-branch: true
           add-paths: data/property-catalog.json
-          commit-message: chore: synchronize provider property catalog
-          title: chore: synchronize provider property catalog
+          commit-message: "chore: synchronize provider property catalog"
+          title: "chore: synchronize provider property catalog"
           body: |
             Automated reconciliation of the public CRCN/Imob catalog and Stays properties.
 
