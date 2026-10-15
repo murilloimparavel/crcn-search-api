@@ -1,56 +1,54 @@
 const { cleanText } = require('./normalizer');
 
-// Catálogo base de condomínios parceiros conhecidos do Imob em Caldas Novas
+// IDs publicados em https://reservascrcn.com.br/condominio/{id}.
+// A API Imob usa o mesmo ID no campo `condominio` de /listOrcamento.
+// Nomes/IDs conferidos no catálogo público em 2026-10-15.
 const IMOB_KNOWN_CONDOMINIUMS = [
-  {
-    id: 135,
-    nome: 'Golden Dolphin Supreme',
-    cidade: 'Caldas Novas',
-    regiao: 'Turista 1',
-    descricao: 'Condomínio de alto padrão com complexo aquático completo, piscinas termais para adultos e crianças, sauna, toboáguas e lanchonete.',
-    comodidades: ['Piscina ao ar livre (Compartilhada)', 'Piscina aquecida (Compartilhada)', 'Sauna', 'Estacionamento', 'Elevador', 'Recepção 24 horas']
-  },
-  {
-    id: 136,
-    nome: 'Everest Flat Service',
-    cidade: 'Caldas Novas',
-    regiao: 'Centro',
-    descricao: 'Localizado no centro de Caldas Novas, com fácil acesso ao comércio, piscinas de águas termais, sauna e recepção 24h.',
-    comodidades: ['Piscina aquecida (Compartilhada)', 'Sauna', 'Estacionamento', 'Elevador', 'Recepção 24 horas']
-  },
-  {
-    id: 137,
-    nome: 'Lagoa Quente Flat Service',
-    cidade: 'Caldas Novas',
-    regiao: 'Lagoa Quente',
-    descricao: 'Ao lado do Parque Lagoa Quente, com parque aquático termal próprio, toboáguas, bar molhado e ambiente familiar.',
-    comodidades: ['Piscina ao ar livre (Compartilhada)', 'Piscina aquecida (Compartilhada)', 'Bar molhado', 'Sauna', 'Estacionamento']
-  },
-  {
-    id: 138,
-    nome: 'Golden Dolphin Grand Hotel',
-    cidade: 'Caldas Novas',
-    regiao: 'Turista 1',
-    descricao: 'Um dos maiores complexos de lazer de Caldas Novas, com 9 piscinas termais, toboáguas infantis, quadras esportivas e recreação.',
-    comodidades: ['Piscina ao ar livre (Compartilhada)', 'Piscina aquecida (Compartilhada)', 'Toboágua', 'Sauna', 'Quadra poliesportiva', 'Restaurante']
-  },
-  {
-    id: 139,
-    nome: 'Ilhas do Lago Eco Resort',
-    cidade: 'Caldas Novas',
-    regiao: 'Lago Corumbá',
-    descricao: 'Resort à beira do Lago de Corumbá com piscinas de borda infinita, náutica, gastronomia refinada e contato com a natureza.',
-    comodidades: ['Piscina ao ar livre (Compartilhada)', 'Piscina aquecida (Compartilhada)', 'Restaurante', 'Bar', 'Academia', 'Estacionamento']
-  },
-  {
-    id: 140,
-    nome: 'Enseada Náutica Flat Service',
-    cidade: 'Caldas Novas',
-    regiao: 'Lago Corumbá',
-    descricao: 'Condomínio à beira do Lago Corumbá, píer náutico, piscinas termais e ambiente tranquilo para relaxamento.',
-    comodidades: ['Piscina aquecida (Compartilhada)', 'Píer náutico', 'Estacionamento', 'Elevador']
-  }
-];
+  ['LACQUA DIROMA', 86],
+  ['LAGOA QUENTE FLAT SERVICE', 135],
+  ['SOL DAS CALDAS', 49],
+  ['AGUAS DA FONTE', 22],
+  ['AGUAS DA SERRA', 47],
+  ['AQUARIUS RESIDENCE', 74],
+  ['BOULEVARD SUITE HOTEL', 16],
+  ['CALDAS NOVAS FLAT (EXPRESS)', 90],
+  ['CASA DA MADEIRA', 17],
+  ['DIROMA FIORI', 87],
+  ['DIROMA RESORT', 88],
+  ['ATRIUM THERMAS', 15],
+  ['ECOLOGIC PARK', 72],
+  ['ELDORADO FLAT SERVICE', 13],
+  ['ELDORADO PARK', 12],
+  ['EVEREST FLAT SERVICE', 44],
+  ['EVIAN THERMAS RESIDENCE', 107],
+  ['FIORE PRIME', 55],
+  ['GOLDEN DOLPHIN G HOTEL', 89],
+  ['GOLDEN DOLPHIN SUPREME', 91],
+  ['JARDINS DAS THERMAS', 21],
+  ['LAGOA QUENTE HOTEL', 133],
+  ['LE JARDIN SUITES', 9],
+  ['MILLENIUM RESIDENCE', 95],
+  ['PARK VEREDAS - RIO QUENTE', 200, 'Rio Quente'],
+  ['PIAZZA DIROMA', 84],
+  ['PRIVE DAS THERMAS 1', 103],
+  ['PRIVE DAS THERMAS 2', 102],
+  ['RECANTO DO BOSQUE', 105],
+  ['RIO CALDAS', 39],
+  ['ROYAL PARK', 96],
+  ['SPAZZIO DIROMA', 83],
+  ['SPLENDOR THERMAS', 45],
+  ['THERMAS DAS CALDAS', 43],
+  ['THERMAS DO BANDEIRANTE', 106],
+  ['THERMAS PLACE', 94],
+  ['VITORIA DAS THERMAS', 101]
+].map(([nome, id, cidade = 'Caldas Novas']) => ({
+  id,
+  nome,
+  cidade,
+  regiao: '',
+  descricao: 'Condomínio listado no catálogo público da CRCN.',
+  comodidades: []
+}));
 
 const STOP_WORDS = new Set(['hotel', 'condominio', 'flat', 'service', 'resort', 'spa', 'termas', 'thermas', 'do', 'da', 'dos', 'das', 'de', 'e', 'o', 'a']);
 
@@ -91,6 +89,70 @@ function calculateMatchScore(textA, textB) {
   const union = new Set([...tokensA, ...tokensB]);
   const score = common.length / union.size;
   return score;
+}
+
+function compactLookupKey(value) {
+  return normalizeLookupKey(value).replace(/\s+/g, '');
+}
+
+function editDistance(left, right) {
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= left.length; i += 1) {
+    let diagonal = previous[0];
+    previous[0] = i;
+    for (let j = 1; j <= right.length; j += 1) {
+      const above = previous[j];
+      previous[j] = Math.min(
+        previous[j] + 1,
+        previous[j - 1] + 1,
+        diagonal + (left[i - 1] === right[j - 1] ? 0 : 1)
+      );
+      diagonal = above;
+    }
+  }
+  return previous[right.length];
+}
+
+function scoreCatalogName(query, candidate) {
+  const queryKey = normalizeLookupKey(query);
+  const candidateKey = normalizeLookupKey(candidate);
+  if (!queryKey || !candidateKey) return 0;
+  if (queryKey === candidateKey) return 1;
+
+  const queryCompact = compactLookupKey(query);
+  const candidateCompact = compactLookupKey(candidate);
+  if (queryCompact === candidateCompact) return 0.98;
+  if (queryCompact.length >= 4 && candidateCompact.includes(queryCompact)) return 0.86;
+
+  const queryTokens = extractDistinctiveTokens(queryKey);
+  const candidateTokens = extractDistinctiveTokens(candidateKey);
+  if (!queryTokens.length || !candidateTokens.length) return 0;
+
+  const matchedTokens = queryTokens.filter((token) => candidateTokens.some((candidateToken) => {
+    if (candidateToken === token || candidateToken.startsWith(token)) return true;
+    if (token.length >= 4 && candidateToken.includes(token)) return true;
+    if (token.length < 5 || candidateToken.length < 5) return false;
+    const maxDistance = Math.max(token.length, candidateToken.length) >= 8 ? 2 : 1;
+    return editDistance(token, candidateToken) <= maxDistance;
+  }));
+  if (matchedTokens.length === queryTokens.length) {
+    return 0.76 + 0.2 * (queryTokens.length / candidateTokens.length);
+  }
+  if (matchedTokens.length) return 0.68 * (matchedTokens.length / queryTokens.length);
+
+  const distance = editDistance(queryCompact, candidateCompact);
+  const ratio = distance / Math.max(queryCompact.length, candidateCompact.length);
+  return queryCompact.length >= 5 && ratio <= 0.2 ? 0.78 - 0.3 * ratio : 0;
+}
+
+function findUniqueCatalogMatch(query, catalog) {
+  const ranked = catalog
+    .map((item) => ({ item, score: scoreCatalogName(query, item.nome) }))
+    .filter(({ score }) => score >= 0.72)
+    .sort((a, b) => b.score - a.score);
+  if (!ranked.length) return null;
+  if (ranked.length > 1 && ranked[0].score - ranked[1].score < 0.08) return null;
+  return ranked[0].item;
 }
 
 class PropertyCatalog {
@@ -176,10 +238,8 @@ class PropertyCatalog {
 
     // 2. Busca no catálogo Imob (para condomínios que a Stays não tem)
     for (const imob of this.allImobCondominiums) {
-      const imobNorm = normalizeLookupKey(imob.nome);
-      const isSubstring = normalizedQuery && (imobNorm.includes(normalizedQuery) || normalizedQuery.includes(imobNorm));
-      const matchScore = normalizedQuery ? calculateMatchScore(imob.nome, query) : 1;
-      if (!normalizedQuery || isSubstring || matchScore >= 0.4) {
+      const matchScore = normalizedQuery ? scoreCatalogName(query, imob.nome) : 1;
+      if (!normalizedQuery || matchScore >= 0.4) {
         // Se já foi incluído via Stays, não duplica
         const alreadyIncluded = results.some((item) => {
           return calculateMatchScore(item.nome, imob.nome) >= 0.6;
@@ -253,9 +313,7 @@ class PropertyCatalog {
 
     // 3. Busca correspondente no Imob
     const matchLookup = staysName || raw;
-    const matchedImob = this.allImobCondominiums.find((imob) => {
-      return calculateMatchScore(imob.nome, matchLookup) >= 0.6;
-    });
+    const matchedImob = findUniqueCatalogMatch(matchLookup, this.allImobCondominiums);
 
     if (staysId && matchedImob) {
       return {
@@ -300,12 +358,17 @@ class PropertyCatalog {
       imobName: raw
     };
   }
+
+  getImobCondominiumName(id) {
+    return this.allImobCondominiums.find((item) => String(item.id) === String(id))?.nome || null;
+  }
 }
 
 module.exports = {
   PropertyCatalog,
   normalizeLookupKey,
   calculateMatchScore,
+  scoreCatalogName,
   extractDistinctiveTokens,
   IMOB_KNOWN_CONDOMINIUMS
 };

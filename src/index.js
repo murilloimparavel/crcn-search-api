@@ -753,6 +753,13 @@ app.all('/api/v1/search', async (req, res) => {
                   onePerCondominium: true
                 });
 
+            // Usa sempre o nome canônico publicado no catálogo quando o ID for conhecido.
+            imobRecords.forEach((record) => {
+              const condominiumId = record?.condominioId ?? record?.idCondominio ?? record?.condominio;
+              const canonicalName = propertyCatalog.getImobCondominiumName(condominiumId);
+              if (canonicalName) record.nomeCond = canonicalName;
+            });
+
             // Registra dinamicamente no catálogo para próximas pesquisas
             imobRecords.forEach((record) => propertyCatalog.registerDiscoveredImob(record));
           } catch (error) {
@@ -829,6 +836,9 @@ app.all('/api/v1/search', async (req, res) => {
         const selectedStays = pageCandidates.filter((c) => c.provider === 'stays').map((c) => c.listing);
         const enrichedListings = selectedStays.length ? await staysClient.enrichListings(selectedStays) : [];
         const staysOptions = processAndRankResults(enrichedListings, nightsCriteria);
+        if (resolvedProperty?.imobName) {
+          staysOptions.forEach((option) => { option.condominio = resolvedProperty.imobName; });
+        }
         const staysById = new Map(staysOptions.map((item) => [String(item.id || ''), item]));
         const imobByLink = new Map(diversifiedImob.map((item) => [item.link_reserva, item]));
 
