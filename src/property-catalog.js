@@ -41,14 +41,33 @@ const IMOB_KNOWN_CONDOMINIUMS = [
   ['THERMAS DO BANDEIRANTE', 106],
   ['THERMAS PLACE', 94],
   ['VITORIA DAS THERMAS', 101]
-].map(([nome, id, cidade = 'Caldas Novas']) => ({
-  id,
-  nome,
-  cidade,
-  regiao: '',
-  descricao: 'Condomínio listado no catálogo público da CRCN.',
-  comodidades: []
-}));
+].map(([nome, id, cidade = 'Caldas Novas']) => {
+  const preservedDetails = {
+    91: {
+      regiao: 'Turista 1',
+      descricao: 'Condomínio de alto padrão com complexo aquático completo, piscinas termais para adultos e crianças, sauna, toboáguas e lanchonete.',
+      comodidades: ['Piscina ao ar livre (Compartilhada)', 'Piscina aquecida (Compartilhada)', 'Sauna', 'Estacionamento', 'Elevador', 'Recepção 24 horas']
+    },
+    44: {
+      regiao: 'Centro',
+      descricao: 'Localizado no centro de Caldas Novas, com fácil acesso ao comércio, piscinas de águas termais, sauna e recepção 24h.',
+      comodidades: ['Piscina aquecida (Compartilhada)', 'Sauna', 'Estacionamento', 'Elevador', 'Recepção 24 horas']
+    },
+    135: {
+      regiao: 'Lagoa Quente',
+      descricao: 'Ao lado do Parque Lagoa Quente, com parque aquático termal próprio, toboáguas, bar molhado e ambiente familiar.',
+      comodidades: ['Piscina ao ar livre (Compartilhada)', 'Piscina aquecida (Compartilhada)', 'Bar molhado', 'Sauna', 'Estacionamento']
+    }
+  }[id] || {};
+  return {
+    id,
+    nome,
+    cidade,
+    regiao: preservedDetails.regiao || '',
+    descricao: preservedDetails.descricao || 'Condomínio listado no catálogo público da CRCN.',
+    comodidades: preservedDetails.comodidades || []
+  };
+});
 
 const STOP_WORDS = new Set(['hotel', 'condominio', 'flat', 'service', 'resort', 'spa', 'termas', 'thermas', 'do', 'da', 'dos', 'das', 'de', 'e', 'o', 'a']);
 

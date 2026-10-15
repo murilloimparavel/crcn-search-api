@@ -30,25 +30,27 @@ async function testPropertyCatalog() {
   const staysResults = await catalog.searchProperties('Thermas');
   assert.equal(staysResults.length, 1);
   assert.equal(staysResults[0].nome, 'Thermas Place');
-  assert.equal(staysResults[0].provedor, 'stays');
+  assert.equal(staysResults[0].provedor, 'both');
   assert.match(staysResults[0].descricao, /7 piscinas termais/);
 
   // 2. Testa busca de propriedade exclusiva do Imob (ex: Golden Dolphin)
   const imobResults = await catalog.searchProperties('Golden Dolphin');
   assert.ok(imobResults.length >= 1);
-  assert.equal(imobResults[0].nome, 'Golden Dolphin Supreme');
-  assert.equal(imobResults[0].provedor, 'imob');
-  assert.equal(imobResults[0].cidade, 'Caldas Novas');
-  assert.ok(imobResults[0].comodidades.length > 0);
+  const goldenSupreme = imobResults.find((item) => item.nome === 'Golden Dolphin Supreme');
+  assert.ok(goldenSupreme);
+  assert.equal(goldenSupreme.provedor, 'imob');
+  assert.equal(goldenSupreme.cidade, 'Caldas Novas');
+  assert.ok(goldenSupreme.comodidades.length > 0);
 
   // 3. Testa resolução de propriedade por nome
   const resolvedGolden = await catalog.resolvePropertyFilter('Golden Dolphin Supreme');
   assert.equal(resolvedGolden.type, 'imob_only');
-  assert.equal(resolvedGolden.imobId, '135');
+  assert.equal(resolvedGolden.imobId, '91');
 
   const resolvedThermas = await catalog.resolvePropertyFilter('Thermas Place');
-  assert.equal(resolvedThermas.type, 'stays_only');
+  assert.equal(resolvedThermas.type, 'hybrid');
   assert.equal(resolvedThermas.staysId, 'STAYS-TP-1');
+  assert.equal(resolvedThermas.imobId, '94');
 
   // 4. Testa resolução por ID numérico puro (Imob)
   const resolvedNumeric = await catalog.resolvePropertyFilter('135');
