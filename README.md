@@ -14,6 +14,14 @@ Opcionalmente, configure `IMOB_AUTHORIZATION` com o valor completo do cabeçalho
 
 A Stays é consultada primeiro. Se a quantidade de opções elegíveis for menor que `max_results`, a API consulta o Imob para preencher o limite. Em uma busca ampla o Imob pede uma opção por condomínio; numa busca de condomínio, o proxy usa os nomes encontrados nos resultados disponíveis para resolver o ID do Imob e repete a consulta filtrada. Opções Imob são convertidas para os mesmos campos das opções Stays e preservam o `linkParceiro`.
 
+### Identidade interna e sincronização de condomínios
+
+`data/property-catalog.json` mantém uma identidade CRCN estável (`property_key`) e os IDs independentes de cada provedor. A API só traduz um ID Stays para um ID Imob quando o vínculo está verificado por nome exato, normalização segura ou revisão manual; sugestões fuzzy permanecem pendentes e nunca alteram o filtro de disponibilidade.
+
+Para conferir alterações sem gravá-las, execute `npm run catalog:sync`. Para aplicar uma sincronização localmente, execute `npm run catalog:sync -- --apply`. O processo compara o catálogo público Imob e a lista de propriedades Stays, preserva identidades existentes e interrompe se uma origem falhar ou retornar dados inesperadamente incompletos.
+
+O workflow diário do GitHub Actions abre ou atualiza um PR quando o catálogo muda. Configure os secrets `STAYS_CLIENT_ID` e `STAYS_CLIENT_SECRET` no repositório; são as credenciais da Stays External API, não o login do painel. Revise nomes ambíguos antes de aprovar qualquer vínculo.
+
 O retorno de `listOrcamento` pode não conter preço. Nessa situação, a API usa a chamada de cotação pública observada no próprio site para obter o valor de PIX e preencher `valor_total`/`valor_diaria`; não estima nem inventa preço. `IMOB_PUBLIC_BASE_URL` e `IMOB_PRICE_CANDIDATE_LIMIT` configuram essa etapa. Se a cotação do site falhar, o preço permanece `null` e o erro é registrado sem interromper opções Stays.
 
 Para executar localmente, copie `.env.example` para `.env`, preencha as credenciais localmente e use `npm ci && npm start`. O arquivo `.env` é ignorado pelo Git. O teste de integração `npm test` inicia um servidor temporário em loopback e usa respostas simuladas; não consulta a VPS nem cria reservas.

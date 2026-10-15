@@ -1,0 +1,51 @@
+name: Synchronize property catalog
+
+on:
+  schedule:
+    - cron: '23 8 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Reconcile provider catalogs
+        env:
+          STAYS_BASE_URL: ${{ secrets.STAYS_BASE_URL }}
+          STAYS_CLIENT_ID: ${{ secrets.STAYS_CLIENT_ID }}
+          STAYS_CLIENT_SECRET: ${{ secrets.STAYS_CLIENT_SECRET }}
+          IMOB_PUBLIC_BASE_URL: https://reservascrcn.com.br
+        run: npm run catalog:sync -- --apply
+
+      - name: Run the complete test suite
+        run: npm test
+
+      - name: Open or update a catalog review pull request
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ github.token }}
+          branch: automation/property-catalog-sync
+          delete-branch: true
+          add-paths: data/property-catalog.json
+          commit-message: chore: synchronize provider property catalog
+          title: chore: synchronize provider property catalog
+          body: |
+            Automated reconciliation of the public CRCN/Imob catalog and Stays properties.
+
+            Review new identities and `pending_matches` before approving any cross-provider link. Only exact, unique names are linked automatically.
