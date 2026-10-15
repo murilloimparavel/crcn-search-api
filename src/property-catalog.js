@@ -119,12 +119,14 @@ function scoreCatalogName(query, candidate) {
   if (!queryKey || !candidateKey) return 0;
   if (queryKey === candidateKey) return 1;
 
+  const queryTokens = extractDistinctiveTokens(queryKey);
+  if (!queryTokens.length) return 0;
+
   const queryCompact = compactLookupKey(query);
   const candidateCompact = compactLookupKey(candidate);
   if (queryCompact === candidateCompact) return 0.98;
   if (queryCompact.length >= 4 && candidateCompact.includes(queryCompact)) return 0.86;
 
-  const queryTokens = extractDistinctiveTokens(queryKey);
   const candidateTokens = extractDistinctiveTokens(candidateKey);
   if (!queryTokens.length || !candidateTokens.length) return 0;
 
