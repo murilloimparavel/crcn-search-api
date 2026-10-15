@@ -36,7 +36,7 @@ async function testPropertyCatalog() {
   // 2. Testa busca de propriedade exclusiva do Imob (ex: Golden Dolphin)
   const imobResults = await catalog.searchProperties('Golden Dolphin');
   assert.ok(imobResults.length >= 1);
-  const goldenSupreme = imobResults.find((item) => item.nome === 'Golden Dolphin Supreme');
+  const goldenSupreme = imobResults.find((item) => item.nome === 'GOLDEN DOLPHIN SUPREME');
   assert.ok(goldenSupreme);
   assert.equal(goldenSupreme.provedor, 'imob');
   assert.equal(goldenSupreme.cidade, 'Caldas Novas');
