@@ -1,15 +1,16 @@
 # Custom tools EvoCRM para a Search API
 
-As tools ativas do `subagent_reservas_crcn` usam a rede interna do Docker. A busca de disponibilidade continua em `POST /api/v1/search` e retorna até três acomodações normalizadas.
+As ferramentas ativas do EvoCRM acessam a Search API por `https://search-api.caldasindica.com`, publicado via Cloudflare e Traefik. O domínio tem `X-Robots-Tag: noindex, nofollow`; isso reduz a indexação por buscadores, mas não é autenticação. A API continua sem exigir token, conforme a decisão operacional da CRCN. O tráfego entre EvoCRM e Search API não depende de uma rede Docker compartilhada.
 
 ## Busca por hotel/propriedade
 
 A tool `buscar_propriedade_crcn` recebe o trecho do nome que o cliente mencionou; a Sofia não precisa conhecer previamente os rótulos do catálogo Stays.
 
 - Método: `GET`
-- Endpoint: `http://search_api-dwixf32tdj4e7pa04zniwmsk:3000/api/v1/properties`
+- Endpoint: `https://search-api.caldasindica.com/api/v1/properties`
 - Parâmetro tipado: `q` (string, obrigatório)
-- Limite: até cinco correspondências, com nome e ID do catálogo.
+- Limite: até cinco correspondências, com o `property_key` estável e o nome canônico. A resposta também pode incluir os IDs de origem (`stays_id` e `imob_id`) apenas para diagnóstico; a IA deve usar `property_key` na busca de disponibilidade.
+- Descrição da tool deve instruir: escolher a opção por `nome`, confirmar se houver ambiguidade e guardar seu `property_key`; nunca passar `stays_id`, `imob_id` ou ID numérico como propriedade.
 
 Exemplo: para “Quero um hotel no Eldorado”, chamar a tool com `q="Eldorado"`. Se houver várias correspondências, perguntar qual empreendimento a pessoa prefere. Não escolher uma propriedade aleatoriamente.
 
@@ -22,13 +23,13 @@ A tool `buscar_disponibilidade_crcn` aceita estes campos tipados no `body_params
   "from": {"type": "string", "required": true, "description": "Check-in exato em YYYY-MM-DD."},
   "to": {"type": "string", "required": true, "description": "Check-out exato em YYYY-MM-DD."},
   "persons": {"type": "integer", "required": true, "description": "Total de adultos e crianças."},
-  "property": {"type": "string", "required": false, "description": "ID retornado por buscar_propriedade_crcn ou nome exato do catálogo."},
+  "property": {"type": "string", "required": false, "description": "property_key interno (ex.: crcn:piazza-diroma) retornado por buscar_propriedade_crcn. Use este valor; não envie stays_id, imob_id, ID numérico de anúncio ou nome."},
   "amenities": {"type": "string", "required": false, "description": "Comodidades do catálogo, separadas por vírgulas."},
   "page": {"type": "integer", "required": false, "description": "Página de resultados. Omita ou use 1 na primeira busca. Para trazer mais opções, envie o valor proxima_pagina da resposta anterior e mantenha datas, hóspedes e filtros."}
 }
 ```
 
-Exemplo: depois de a pessoa escolher uma das propriedades encontradas, enviar o ID retornado em `property`, junto com `from`, `to` e `persons`. O campo `property` é opcional para buscas sem preferência por empreendimento.
+Exemplo: depois de a pessoa escolher uma das propriedades encontradas, enviar o `property_key` retornado em `property`, junto com `from`, `to` e `persons`. O campo `property` é opcional para buscas sem preferência por empreendimento.
 
 Quando o cliente pedir mais opções e `mais_opcoes_disponiveis` for `true`, chame novamente `buscar_disponibilidade_crcn` com `page` incrementado em um. Preserve `from`, `to`, `persons` e os mesmos filtros; não repita opções que já foram mostradas.
 
@@ -36,9 +37,9 @@ Quando o cliente pedir mais opções e `mais_opcoes_disponiveis` for `true`, cha
 
 1. Resolva datas relativas com `calcular_data_brt` e confirme o período com o cliente.
 2. Se o cliente pedir um hotel específico, chame `buscar_propriedade_crcn` com o nome ou trecho dito pelo cliente.
-3. Se vier mais de uma opção, mostre no máximo cinco correspondências e pergunte qual prefere. Se vier uma opção clara, use o ID dela.
-4. Chame `buscar_disponibilidade_crcn` com o ID escolhido, as datas exatas e a quantidade informada de hóspedes.
-5. Apresente somente as acomodações e valores retornados pela API.
+3. Se vier mais de uma opção, mostre no máximo cinco correspondências e pergunte qual prefere. Guarde o `property_key` da opção escolhida.
+4. Chame `buscar_disponibilidade_crcn` com o `property_key` interno da opção escolhida, as datas exatas e a quantidade informada de hóspedes. Não passe `stays_id` nem `imob_id` em `property`.
+5. Confira `provedores_consultados`: em propriedades `both`, Stays e Imob precisam estar como `available` ou `no_availability`. Se houver `error`, `not_queried` ou `not_configured`, não afirme indisponibilidade; siga a instrução de cobertura incompleta. Apresente somente acomodações e valores retornados pela API.
 6. Se a pessoa pedir outras opções, use `proxima_pagina` na mesma tool, sem pedir novamente as datas ou hóspedes.
 
 ## Detalhes de uma acomodação
@@ -54,3 +55,5 @@ A resposta já apresenta campos normalizados para a IA: situação da reserva, c
 ## Registro no EvoCRM
 
 Os registros ativos estão em `evo_core_custom_tools` e nas entradas correspondentes de `evo_core_agents.config.custom_tools.http_tools` do `subagent_reservas_crcn`. A ferramenta de busca de propriedade tem UUID `584dd0b6-a136-4eb8-bfc1-698f7ade0aa1`; a busca de disponibilidade mantém UUID `f25b1f02-9950-4db8-a213-2345678901bc`.
+
+Os quatro endpoints em produção apontam para o domínio HTTPS: `GET /api/v1/date/now`, `POST /api/v1/date/calculate`, `GET /api/v1/properties` e `POST /api/v1/search`.

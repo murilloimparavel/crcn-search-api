@@ -1,6 +1,16 @@
 const DEFAULT_BASE_URL = 'https://crcn.stays.net/external/v1';
 const DEFAULT_TIMEOUT_MS = 8_000;
 
+function logStaysProviderEvent(event, fields = {}) {
+  console.log(JSON.stringify({
+    event,
+    service: 'crcn-search-api',
+    provider: 'stays',
+    timestamp: new Date().toISOString(),
+    ...fields
+  }));
+}
+
 class StaysError extends Error {
   constructor(message, { code = 'STAYS_REQUEST_FAILED', status } = {}) {
     super(message);
@@ -96,25 +106,56 @@ class StaysClient {
     });
   }
 
-  async search({ from, to, persons, limit = 3, skip = 0, filters = {} }) {
+  async search({ from, to, persons, limit = 3, skip = 0, filters = {}, requestId = null }) {
     const pageSize = 20;
     const results = [];
-    while (results.length < limit) {
-      const page = await this.searchListings({
-        from,
-        to,
-        persons,
-        limit: Math.min(pageSize, limit - results.length),
-        skip: skip + results.length,
-        filters
-      });
-      if (!Array.isArray(page)) {
-        throw new StaysError('A Stays retornou a busca em formato inválido.', { code: 'STAYS_INVALID_SEARCH_RESPONSE' });
+    const startedAt = Date.now();
+    logStaysProviderEvent('provider.request', {
+      request_id: requestId,
+      operation: 'availability_search',
+      from,
+      to,
+      persons: Number(persons),
+      property_filter: filters.properties?.[0] || null,
+      limit,
+      skip
+    });
+    try {
+      while (results.length < limit) {
+        const page = await this.searchListings({
+          from,
+          to,
+          persons,
+          limit: Math.min(pageSize, limit - results.length),
+          skip: skip + results.length,
+          filters
+        });
+        if (!Array.isArray(page)) {
+          throw new StaysError('A Stays retornou a busca em formato inválido.', { code: 'STAYS_INVALID_SEARCH_RESPONSE' });
+        }
+        results.push(...page);
+        if (page.length < Math.min(pageSize, limit - (results.length - page.length))) break;
       }
-      results.push(...page);
-      if (page.length < Math.min(pageSize, limit - (results.length - page.length))) break;
+    } catch (error) {
+      logStaysProviderEvent('provider.failure', {
+        request_id: requestId,
+        operation: 'availability_search',
+        code: error.code || 'STAYS_REQUEST_FAILED',
+        ...(error.status ? { status: error.status } : {}),
+        duration_ms: Date.now() - startedAt
+      });
+      throw error;
     }
-    return results.slice(0, limit);
+    const selected = results.slice(0, limit);
+    logStaysProviderEvent('provider.success', {
+      request_id: requestId,
+      operation: 'availability_search',
+      status: 200,
+      records: selected.length,
+      outcome: selected.length ? 'available' : 'no_availability',
+      duration_ms: Date.now() - startedAt
+    });
+    return selected;
   }
 
   async enrichListings(listings) {
@@ -144,7 +185,6 @@ class StaysClient {
       body: { from, to, dateType: 'creation', partnerCode }
     });
   }
-
 
   async getReservation(id) {
     return this.request(`/booking/reservations/${encodeURIComponent(id)}`);

@@ -38,27 +38,29 @@ function clearCache() {
 /**
  * Deduplica requisições simultâneas idênticas (Prevenção de Cache Stampede)
  */
-async function fetchWithDeduplication(from, to, persons, limit, fetchFn, filters = {}) {
+async function fetchWithDeduplication(from, to, persons, limit, fetchFn, filters = {}, { cacheResult = true } = {}) {
   const key = buildKey(from, to, persons, limit, filters);
   
-  // 1. Se já está no cache, retorna imediatamente
-  const cached = searchCache.get(key);
-  if (cached) {
-    return { data: cached, isHit: true };
+  // Disponibilidade pode mudar rapidamente. Chamadores podem manter apenas
+  // a deduplicação em voo sem reutilizar um retrato antigo do inventário.
+  if (cacheResult) {
+    const cached = searchCache.get(key);
+    if (cached !== undefined) {
+      return { data: cached, isHit: true, cacheStatus: 'HIT' };
+    }
   }
 
-  // 2. Se já existe uma requisição em voo para os mesmos parâmetros, aguarda ela
+  // Deduplica somente chamadas simultâneas idênticas.
   if (inFlightRequests.has(key)) {
-    console.log(`[Cache] Aguardando requisição em voo para ${key}`);
     const data = await inFlightRequests.get(key);
-    return { data, isHit: true };
+    return { data, isHit: false, cacheStatus: 'IN_FLIGHT' };
   }
 
   // 3. Primeira requisição: cria e registra a Promise
   const promise = (async () => {
     try {
       const result = await fetchFn();
-      searchCache.set(key, result);
+      if (cacheResult) searchCache.set(key, result);
       return result;
     } finally {
       inFlightRequests.delete(key);
@@ -67,7 +69,7 @@ async function fetchWithDeduplication(from, to, persons, limit, fetchFn, filters
 
   inFlightRequests.set(key, promise);
   const data = await promise;
-  return { data, isHit: false };
+  return { data, isHit: false, cacheStatus: 'MISS' };
 }
 
 module.exports = {

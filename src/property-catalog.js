@@ -75,6 +75,17 @@ function loadInternalCatalog() {
   return LEGACY_IMOB_CONDOMINIUMS.map((item) => ({ ...item, property_key: internalKey(item.nome) }));
 }
 
+function loadPropertyIdentityCatalog() {
+  try {
+    const catalog = JSON.parse(fs.readFileSync(PROPERTY_CATALOG_PATH, 'utf8'));
+    validateCatalog(catalog);
+    return catalog;
+  } catch (error) {
+    if (error.code === 'ENOENT') return { properties: [] };
+    throw error;
+  }
+}
+
 const IMOB_KNOWN_CONDOMINIUMS = loadInternalCatalog();
 
 const STOP_WORDS = new Set(['hotel', 'condominio', 'flat', 'service', 'resort', 'spa', 'termas', 'thermas', 'do', 'da', 'dos', 'das', 'de', 'e', 'o', 'a']);
@@ -188,11 +199,35 @@ function findUniqueCatalogMatch(query, catalog) {
   return ranked[0].item;
 }
 
+function findUniqueStaysMatch(query, staysList, rawInput) {
+  const byId = staysList.find((property) =>
+    [property?._id, property?.id, property?.val].filter(Boolean).map(String).includes(String(rawInput))
+  );
+  if (byId) return { property: byId, ambiguous: false };
+
+  const ranked = staysList
+    .map((property) => ({
+      property,
+      score: calculateMatchScore(
+        normalizeCatalogName(property?._mstitle?.pt_BR || property?.internalName || property?.name || ''),
+        normalizeCatalogName(query)
+      )
+    }))
+    .filter(({ score }) => score >= 0.6)
+    .sort((left, right) => right.score - left.score);
+  if (!ranked.length) return { property: null, ambiguous: false };
+  if (ranked.length > 1 && ranked[0].score - ranked[1].score < 0.08) {
+    return { property: null, ambiguous: true };
+  }
+  return { property: ranked[0].property, ambiguous: false };
+}
+
 class PropertyCatalog {
-  constructor({ staysClient, imobClient, imobCatalog = IMOB_KNOWN_CONDOMINIUMS } = {}) {
+  constructor({ staysClient, imobClient, imobCatalog = IMOB_KNOWN_CONDOMINIUMS, identityCatalog = null } = {}) {
     this.staysClient = staysClient;
     this.imobClient = imobClient;
     this.imobCatalog = [...imobCatalog];
+    this.identityCatalog = identityCatalog;
     this.dynamicImobDiscovered = new Map();
   }
 
@@ -219,19 +254,19 @@ class PropertyCatalog {
 
   findInternalRecordForStays(staysIds = []) {
     const ids = new Set(staysIds.filter(Boolean).map(String));
-    let catalog;
-    try {
-      catalog = JSON.parse(fs.readFileSync(PROPERTY_CATALOG_PATH, 'utf8'));
-    } catch (error) {
-      if (error.code === 'ENOENT') return null;
-      throw error;
-    }
+    const catalog = this.identityCatalog || loadPropertyIdentityCatalog();
     return (catalog.properties || []).find((record) => {
       if (record.status !== 'active' || record.sources?.stays?.status !== 'active') return false;
       const stays = record.sources?.stays;
       const recordIds = [stays?.id, ...(stays?.alternate_ids || [])].filter(Boolean).map(String);
       return recordIds.some((id) => ids.has(id));
     });
+  }
+
+  findInternalRecordByKey(propertyKey) {
+    if (!propertyKey) return null;
+    const catalog = this.identityCatalog || loadPropertyIdentityCatalog();
+    return (catalog.properties || []).find((record) => record.property_key === String(propertyKey)) || null;
   }
 
   findVerifiedImobForStays(staysIds = []) {
@@ -293,6 +328,7 @@ class PropertyCatalog {
     for (const imob of this.allImobCondominiums) {
       const matchScore = normalizedQuery ? scoreCatalogName(query, imob.nome) : 1;
       if (!normalizedQuery || matchScore >= 0.4) {
+        const identity = this.findInternalRecordByKey(imob.property_key);
         // Se já foi incluído via Stays, não duplica
         const alreadyIncluded = results.some((item) => {
           return String(item.imob_id || '') === String(imob.id)
@@ -302,6 +338,7 @@ class PropertyCatalog {
         if (!alreadyIncluded) {
           results.push({
             property_key: imob.property_key || internalKey(imob.nome),
+            mapping_status: identity?.match_status || 'source_only',
             id: String(imob.id),
             stays_id: null,
             imob_id: imob.id,
@@ -321,105 +358,84 @@ class PropertyCatalog {
   }
 
   // Resolve a intenção de propriedade enviada em POST /api/v1/search
-  // Aceita: nome ("Thermas Place", "Golden Dolphin"), ID Stays ("LG15J", "6a356..."), ou ID Imob ("135")
+  // Disponibilidade aceita somente a identidade interna CRCN.
   async resolvePropertyFilter(propertyInput) {
     if (!propertyInput) return null;
 
     const raw = String(propertyInput).trim();
-    const normalized = normalizeLookupKey(raw);
-    const isNumeric = /^\d+$/.test(raw);
-
-    // 1. Se for ID numérico puro, verifica se é Imob direto
-    if (isNumeric) {
-      const imobCondo = this.allImobCondominiums.find((item) => String(item.id) === raw);
-      return {
-        type: 'imob_only',
-        propertyKey: imobCondo?.property_key || (imobCondo ? internalKey(imobCondo.nome) : null),
-        name: imobCondo?.nome || raw,
-        imobId: raw,
-        staysId: null
-      };
+    if (!raw.startsWith('crcn:')) {
+      return { type: 'unknown', name: raw, propertyKey: null, staysId: null, imobId: null, code: 'PROPERTY_KEY_REQUIRED' };
     }
 
-    // 2. Busca no catálogo Stays
-    let staysFilter = null;
-    let staysName = null;
-    let staysId = null;
-    let matchedStays = null;
+    // A property_key is the stable CRCN identity. Resolve it directly instead
+    // of treating the key as a fuzzy name and accidentally selecting a source.
+    if (raw.startsWith('crcn:')) {
+      const identity = this.findInternalRecordByKey(raw);
+      if (!identity || identity.status !== 'active') {
+        return { type: 'unknown', name: raw, propertyKey: raw, staysId: null, imobId: null };
+      }
 
-    if (this.staysClient) {
-      try {
-        const filters = await this.staysClient.getSearchFilters().catch(() => null);
-        const staysList = Array.isArray(filters?.properties) ? filters.properties : [];
+      const stays = identity.sources?.stays;
+      const imob = identity.sources?.imob;
+      const staysActive = stays?.status === 'active' && stays.id != null;
+      const imobActive = imob?.status === 'active' && imob.id != null;
+      const verifiedMatches = ['verified_exact_name', 'verified_normalized_name', 'verified_manual'];
+      const mappingVerified = verifiedMatches.includes(identity.match_status);
 
-        // Match por ID ou por similaridade de Nome
-        matchedStays = staysList.find((p) => {
-          const staysIds = [p?._id, p?.id, p?.val].filter(Boolean).map(String);
-          const idMatch = staysIds.includes(raw);
-          if (idMatch) return true;
-          const pName = p?._mstitle?.pt_BR || p?.internalName || '';
-          return calculateMatchScore(normalizeCatalogName(pName), normalized) >= 0.6;
-        });
+      if (staysActive && imobActive && !mappingVerified) {
+        return {
+          type: 'mapping_pending',
+          propertyKey: identity.property_key,
+          name: identity.canonical_name,
+          mappingStatus: identity.match_status,
+          staysId: String(stays.id),
+          imobId: String(imob.id)
+        };
+      }
 
-        if (matchedStays) {
-          staysId = matchedStays._id || matchedStays.id;
-          staysName = cleanText(matchedStays._mstitle?.pt_BR || matchedStays.internalName || '');
-          staysFilter = [staysId];
-        }
-      } catch {}
+      if (staysActive && imobActive) {
+        return {
+          type: 'hybrid',
+          propertyKey: identity.property_key,
+          name: identity.canonical_name,
+          staysId: String(stays.id),
+          staysFilter: [String(stays.id)],
+          imobId: String(imob.id),
+          imobName: identity.canonical_name,
+          mappingStatus: identity.match_status
+        };
+      }
+
+      if (staysActive) {
+        return {
+          type: 'stays_only',
+          propertyKey: identity.property_key,
+          name: identity.canonical_name,
+          staysId: String(stays.id),
+          staysFilter: [String(stays.id)],
+          imobId: null,
+          imobName: identity.canonical_name,
+          mappingStatus: identity.match_status
+        };
+      }
+
+      if (imobActive) {
+        return {
+          type: 'imob_only',
+          propertyKey: identity.property_key,
+          name: identity.canonical_name,
+          staysId: null,
+          staysFilter: null,
+          imobId: String(imob.id),
+          imobName: identity.canonical_name,
+          mappingStatus: identity.match_status
+        };
+      }
+
+      return { type: 'unknown', name: identity.canonical_name, propertyKey: identity.property_key, staysId: null, imobId: null };
     }
 
-    // 3. Busca correspondente no Imob
-    const matchLookup = normalizeCatalogName(staysName || raw);
-    const staysIdentity = staysId ? this.findInternalRecordForStays([staysId, matchedStays?.id, matchedStays?.val]) : null;
-    const linkedImob = staysId ? this.findVerifiedImobForStays([staysId, matchedStays?.id, matchedStays?.val]) : null;
-    const matchedImob = linkedImob || (!staysId ? findUniqueCatalogMatch(matchLookup, this.allImobCondominiums) : null);
-
-    if (staysId && matchedImob) {
-      return {
-        type: 'hybrid',
-        propertyKey: staysIdentity?.property_key || matchedImob.property_key || internalKey(matchedImob.nome),
-        name: staysName,
-        staysId,
-        staysFilter,
-        imobId: String(matchedImob.id),
-        imobName: matchedImob.nome
-      };
-    }
-
-    if (staysId) {
-      return {
-        type: 'stays_only',
-        propertyKey: staysIdentity?.property_key || internalKey(staysName),
-        name: staysName,
-        staysId,
-        staysFilter,
-        imobId: null,
-        imobName: staysName
-      };
-    }
-
-    if (matchedImob) {
-      return {
-        type: 'imob_only',
-        propertyKey: matchedImob.property_key || internalKey(matchedImob.nome),
-        name: matchedImob.nome,
-        staysId: null,
-        staysFilter: null,
-        imobId: String(matchedImob.id),
-        imobName: matchedImob.nome
-      };
-    }
-
-    // Fallback: repassa como query de nome para ambos tentarem
-    return {
-      type: 'unknown',
-      name: raw,
-      staysId: null,
-      staysFilter: null,
-      imobId: null,
-      imobName: raw
-    };
+    return { type: 'unknown', name: raw, propertyKey: raw, staysId: null, imobId: null };
   }
 
   getImobCondominiumName(id) {
@@ -433,6 +449,7 @@ module.exports = {
   calculateMatchScore,
   scoreCatalogName,
   extractDistinctiveTokens,
+  findUniqueStaysMatch,
   IMOB_KNOWN_CONDOMINIUMS,
   PROPERTY_CATALOG_PATH
 };

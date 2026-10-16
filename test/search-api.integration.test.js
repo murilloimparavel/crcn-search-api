@@ -16,8 +16,9 @@ function staysListing(id, propertyId, price) {
 }
 
 const imobRecords = [
-  { id: 1086, condominio: 91, nomeCond: 'Golden Dolphin Supreme', unidade: 'B0802', titulo: 'Apartamento B0802', maxOcupantes: 8, linkParceiro: 'https://reservascrcn.com.br/parceiro/1/1086?01-11-2026,03-11-2026?s1,,' },
-  { id: 1002, condominio: 44, nomeCond: 'Everest Flat Service', unidade: '00604', titulo: 'Apartamento 00604', maxOcupantes: 4, valorTotal: 442, linkParceiro: 'https://reservascrcn.com.br/parceiro/1/1002?01-11-2026,03-11-2026?s1,,' }
+  { id: 1086, condominio: 91, nomeCond: 'Golden Dolphin Supreme', unidade: 'B0802', titulo: 'Apartamento B0802', maxOcupantes: 5, linkParceiro: 'https://reservascrcn.com.br/parceiro/1/1086?01-11-2026,03-11-2026?s1,,' },
+  { id: 1002, condominio: 44, nomeCond: 'Everest Flat Service', unidade: '00604', titulo: 'Apartamento 00604', maxOcupantes: 4, valorTotal: 442, linkParceiro: 'https://reservascrcn.com.br/parceiro/1/1002?01-11-2026,03-11-2026?s1,,' },
+  { id: 1184, condominio: 89, nomeCond: 'Golden Dolphin G Hotel', unidade: 'B0901', titulo: 'Apartamento B0901', maxOcupantes: 11, linkParceiro: 'https://reservascrcn.com.br/parceiro/1/1184?01-11-2026,03-11-2026?s1,,' }
 ];
 const piazzaImobRecord = {
   id: 2084,
@@ -63,7 +64,12 @@ global.fetch = async (input, options = {}) => {
   }
   if (url.hostname === 'imob.test' && url.pathname.endsWith('/listOrcamento')) {
     const body = JSON.parse(options.body || '{}');
-    if (String(body.condominio) === '84') return Response.json([piazzaImobRecord]);
+    if (body.entrada === '2026-11-01' && body.saida === '2026-11-02' && String(body.condominio) !== '84') {
+      return Response.json({ erro: 'Min de 2 Noites' });
+    }
+    if (String(body.condominio) === '84') {
+      return Response.json(process.env.TEST_PIAZZA_IMOB_EMPTY === '1' ? [] : [piazzaImobRecord]);
+    }
     if (body.condominio) return Response.json(imobRecords.filter((item) => String(item.condominio) === String(body.condominio)));
     return Response.json({ opcoes: imobRecords });
   }
@@ -115,7 +121,7 @@ async function main() {
   assert.equal(response.status, 200);
   assert.equal(payload.sucesso, true);
   assert.deepEqual(Object.keys(payload).sort(), [
-    'filtros_aplicados', 'mais_opcoes_disponiveis', 'opcoes', 'opcoes_retornadas',
+    'filtros_aplicados', 'mais_opcoes_disponiveis', 'opcoes', 'opcoes_retornadas', 'provedores_consultados',
     'periodo', 'proxima_pagina', 'relogio_oficial', 'sucesso', 'tempo_resposta_ms', 'total_encontrados', 'total_exato'
   ].sort());
   assert.equal(payload.opcoes.length, 3);
@@ -144,16 +150,17 @@ async function main() {
   assert.equal(propResponse.status, 200);
   assert.equal(propPayload.sucesso, true);
   assert.ok(propPayload.propriedades.length >= 1);
-  const goldenSupremeProperty = propPayload.propriedades.find((property) => property.nome === 'GOLDEN DOLPHIN SUPREME');
-  assert.ok(goldenSupremeProperty);
-  assert.equal(goldenSupremeProperty.provedor, 'imob');
-  assert.ok(goldenSupremeProperty.descricao.length > 0);
+  const goldenProperty = propPayload.propriedades.find((property) => property.imob_id === 91);
+  assert.ok(goldenProperty);
+  assert.equal(goldenProperty.nome, 'GOLDEN DOLPHIN SUPREME');
+  assert.equal(goldenProperty.provedor, 'imob');
+  assert.ok(goldenProperty.descricao.length > 0);
 
   // Teste 4: Busca de disponibilidade filtrada por condomínio do Imob (sem quebrar na Stays)
   upstreamCalls.length = 0;
   const imobFilteredResponse = await nativeFetch(`${baseUrl}/api/v1/search`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from: '2026-11-01', to: '2026-11-03', persons: 4, property: 'Golden Dolphin Supreme', max_results: 3 })
+    body: JSON.stringify({ from: '2026-11-01', to: '2026-11-03', persons: 4, property: 'crcn:golden-dolphin-supreme', max_results: 3 })
   });
   const imobFilteredPayload = await imobFilteredResponse.json();
   assert.equal(imobFilteredResponse.status, 200);
@@ -161,19 +168,59 @@ async function main() {
   assert.ok(imobFilteredPayload.opcoes.length >= 1);
   assert.equal(imobFilteredPayload.opcoes[0].condominio, 'GOLDEN DOLPHIN SUPREME');
 
-  // Teste 4b: alias de propriedade Stays aciona Imob usando o ID canônico do condomínio.
+  // Teste 4b: a identidade interna filtra os dois provedores pelos IDs correspondentes.
   upstreamCalls.length = 0;
   const piazzaSearchResponse = await nativeFetch(`${baseUrl}/api/v1/search`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from: '2026-12-24', to: '2026-12-27', persons: 6, property: 'LH23J', max_results: 3 })
+    body: JSON.stringify({ from: '2026-12-24', to: '2026-12-27', persons: 6, property: 'crcn:piazza-diroma', max_results: 3 })
   });
   const piazzaSearchPayload = await piazzaSearchResponse.json();
   const piazzaImobCall = upstreamCalls.find((call) => call.url.hostname === 'imob.test');
+  const piazzaStaysCall = upstreamCalls.find((call) => call.url.hostname === 'stays.test' && call.url.pathname.endsWith('/booking/search-listings'));
   assert.equal(piazzaSearchResponse.status, 200);
   assert.equal(piazzaSearchPayload.sucesso, true);
   assert.equal(piazzaSearchPayload.opcoes[0].condominio, 'PIAZZA DIROMA');
   assert.ok(piazzaImobCall);
   assert.equal(String(JSON.parse(piazzaImobCall.options.body).condominio), '84');
+  assert.ok(piazzaStaysCall);
+  assert.deepEqual(JSON.parse(piazzaStaysCall.options.body).properties, ['6a3499da086cdffd520549e8']);
+  assert.equal(piazzaSearchPayload.provedores_consultados.stays.property_filter, '6a3499da086cdffd520549e8');
+  assert.equal(piazzaSearchPayload.provedores_consultados.imob.condominium_filter, '84');
+  assert.equal(piazzaSearchPayload.provedores_consultados.imob.status, 'available');
+
+  // A resposta vazia do Imob para a propriedade deve permanecer explícita; não há fallback global.
+  process.env.TEST_PIAZZA_IMOB_EMPTY = '1';
+  upstreamCalls.length = 0;
+  const piazzaNoAvailabilityResponse = await nativeFetch(`${baseUrl}/api/v1/search`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from: '2026-12-24', to: '2026-12-27', persons: 6, property: 'crcn:piazza-diroma', max_results: 3 })
+  });
+  delete process.env.TEST_PIAZZA_IMOB_EMPTY;
+  const piazzaNoAvailabilityPayload = await piazzaNoAvailabilityResponse.json();
+  assert.equal(piazzaNoAvailabilityResponse.status, 200);
+  assert.equal(piazzaNoAvailabilityPayload.opcoes.length, 0);
+  assert.equal(piazzaNoAvailabilityPayload.provedores_consultados.stays.status, 'no_availability');
+  assert.equal(piazzaNoAvailabilityPayload.provedores_consultados.imob.status, 'no_availability');
+  assert.match(piazzaNoAvailabilityPayload.instrucao_para_o_agente.o_que_fazer, /provedores requeridos foram consultados/);
+
+  // Propriedade desconhecida nunca deve remover silenciosamente o filtro nem pesquisar o inventário geral.
+  upstreamCalls.length = 0;
+  const unresolvedPropertyResponse = await nativeFetch(`${baseUrl}/api/v1/search`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from: '2026-12-24', to: '2026-12-27', persons: 6, property: 'crcn:not-in-catalog' })
+  });
+  const unresolvedPropertyPayload = await unresolvedPropertyResponse.json();
+  assert.equal(unresolvedPropertyResponse.status, 422);
+  assert.equal(unresolvedPropertyPayload.codigo, 'PROPERTY_NOT_RESOLVED');
+  assert.equal(upstreamCalls.some((call) => call.url.pathname.endsWith('/booking/search-listings') || call.url.pathname.endsWith('/listOrcamento')), false);
+
+  const rawNameResponse = await nativeFetch(`${baseUrl}/api/v1/search`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from: '2026-12-24', to: '2026-12-27', persons: 6, property: 'Piazza diRoma' })
+  });
+  const rawNamePayload = await rawNameResponse.json();
+  assert.equal(rawNameResponse.status, 422);
+  assert.equal(rawNamePayload.codigo, 'PROPERTY_KEY_REQUIRED');
 
   // Teste 5: Paginação sequencial disjunta (page 1 vs page 2)
   const page1Res = await nativeFetch(`${baseUrl}/api/v1/search`, {
@@ -193,7 +240,32 @@ async function main() {
   assert.equal(page2Data.opcoes.length, 1);
   assert.notEqual(page1Data.opcoes[0].id, page2Data.opcoes[0].id);
 
-  // Teste 6: Consulta de acomodação por ID numérico do Imob
+  // Teste 6: resposta de estadia mínima inclui automaticamente opções para duas noites
+  const minimumStayRes = await nativeFetch(`${baseUrl}/api/v1/search`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from: '2026-11-01', to: '2026-11-02', persons: 2, max_results: 3 })
+  });
+  const minimumStayData = await minimumStayRes.json();
+  assert.equal(minimumStayRes.status, 200);
+  assert.equal(minimumStayData.periodo.noites, 1);
+  assert.equal(minimumStayData.alternativa_estadia_minima.minimo_noites, 2);
+  assert.equal(minimumStayData.alternativa_estadia_minima.periodo.check_in, '2026-11-01');
+  assert.equal(minimumStayData.alternativa_estadia_minima.periodo.check_out, '2026-11-03');
+  assert.equal(minimumStayData.alternativa_estadia_minima.opcoes.length, 1);
+  assert.equal(minimumStayData.instrucao_para_o_agente.o_que_fazer.includes('consultou automaticamente'), true);
+
+  // Teste 7: amplia a capacidade somente quando a faixa preferida não tem opções
+  const capacityFallbackRes = await nativeFetch(`${baseUrl}/api/v1/search`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from: '2026-11-01', to: '2026-11-03', persons: 8, max_results: 3 })
+  });
+  const capacityFallbackData = await capacityFallbackRes.json();
+  assert.equal(capacityFallbackRes.status, 200);
+  assert.ok(capacityFallbackData.avisos.some((warning) => warning.codigo === 'IMOB_CAPACITY_FILTER_WIDENED'));
+  assert.ok(capacityFallbackData.opcoes.some((option) => option.capacidade === 11));
+  assert.match(capacityFallbackData.instrucao_para_o_agente.o_que_fazer, /capacidade de cada opção/);
+
+  // Teste 8: Consulta de acomodação por ID numérico do Imob
   const listingImobRes = await nativeFetch(`${baseUrl}/api/v1/listings/91`);
   const listingImobData = await listingImobRes.json();
   assert.equal(listingImobRes.status, 200);

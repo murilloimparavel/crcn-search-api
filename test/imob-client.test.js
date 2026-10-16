@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict');
-const { ImobClient, ImobError, formatImobDate, normalizePropertyName, extractPixPrice } = require('../src/imob-client');
+const { ImobClient, formatImobDate, normalizePropertyName, extractPixPrice } = require('../src/imob-client');
 
 async function testRequestContractAndAuthentication() {
   let call;
@@ -21,7 +21,6 @@ async function testRequestContractAndAuthentication() {
     saida: '2026-10-19',
     condominio: null,
     qtdeqrts: 'all',
-    maxOcupantes: '8',
     maxPax: false,
     addCrianca: false,
     umCada: true,
@@ -35,7 +34,7 @@ async function testRequestContractAndAuthentication() {
   assert.equal(normalizePropertyName('Lagoa Quente Flat Service'), 'lagoa quente flat service');
 }
 
-async function testPropertyNameResolvesProviderIdThenSearchesScoped() {
+async function testPropertyNameDoesNotGuessAnIdFromUnfilteredInventory() {
   const calls = [];
   const client = new ImobClient({
     baseUrl: 'https://imob.test/crcn', authorization: 'Basic test',
@@ -44,20 +43,18 @@ async function testPropertyNameResolvesProviderIdThenSearchesScoped() {
       calls.push(body.condominio);
       if (body.condominio === null) {
         return Response.json({ opcoes: [
-          { id: 1, condominio: 135, nomeCond: 'Lagoa Quente Flat Service' },
-          { id: 2, condominio: 200, nomeCond: 'Everest Flat Service' }
+          { id: 1, condominio: 135, nomeCond: 'Lagoa Quente Flat Service', maxOcupantes: 4 },
+          { id: 2, condominio: 200, nomeCond: 'Everest Flat Service', maxOcupantes: 4 }
         ] });
       }
-      return Response.json([{ id: 3, condominio: body.condominio, nomeCond: 'Lagoa Quente Flat Service' }]);
+      return Response.json([{ id: 3, condominio: body.condominio, nomeCond: 'Lagoa Quente Flat Service', maxOcupantes: 4 }]);
     }
   });
-  const records = await client.searchForProperty({
+  await assert.rejects(() => client.searchForProperty({
     from: '2026-10-16', to: '2026-10-18', persons: 4,
     propertyName: 'LAGOA QUENTE'
-  });
-  assert.deepEqual(calls, [null, '135']);
-  assert.equal(records.length, 1);
-  assert.equal(records[0].id, 3);
+  }), (error) => error.code === 'IMOB_PROPERTY_ID_REQUIRED');
+  assert.deepEqual(calls, []);
 }
 
 async function testNumericCondominiumIdIsPassedDirectly() {
@@ -74,6 +71,45 @@ async function testNumericCondominiumIdIsPassedDirectly() {
     propertyName: '135'
   });
   assert.equal(body.condominio, '135');
+  assert.equal(Object.hasOwn(body, 'maxOcupantes'), false);
+}
+
+async function testPartySizeFiltersBroadInventoryByCapacityAndWidensWhenEmpty() {
+  const bodies = [];
+  const client = new ImobClient({
+    authorization: 'Basic test',
+    fetchImpl: async (_url, options) => {
+      const body = JSON.parse(options.body);
+      bodies.push(body);
+      return Response.json([
+        { id: 1, condominio: 135, unidade: 'A', maxOcupantes: 2 },
+        { id: 2, condominio: 135, unidade: 'B', maxOcupantes: 3 },
+        { id: 3, condominio: 135, unidade: 'C', maxOcupantes: 4 },
+        { id: 4, condominio: 135, unidade: 'D', maxOcupantes: 5 },
+        { id: 5, condominio: 135, unidade: 'E', maxOcupantes: 8 }
+      ]);
+    }
+  });
+  const records = await client.searchByOccupancyRange({
+    from: '2026-10-16', to: '2026-10-18', persons: 2
+  });
+  assert.deepEqual(records.map((record) => record.maxOcupantes), [2, 3, 4]);
+  assert.equal(records.capacityFallback, false);
+  assert.equal(bodies.length, 1);
+  assert.equal(Object.hasOwn(bodies[0], 'maxOcupantes'), false);
+
+  const noPreferredFit = new ImobClient({
+    authorization: 'Basic test',
+    fetchImpl: async () => Response.json([
+      { id: 8, condominio: 135, unidade: 'H', maxOcupantes: 8 }
+    ])
+  });
+  const widened = await noPreferredFit.searchByOccupancyRange({
+    from: '2026-10-16', to: '2026-10-18', persons: 2
+  });
+  assert.deepEqual(widened.map((record) => record.maxOcupantes), [8]);
+  assert.equal(widened.capacityFallback, true);
+  assert.equal(widened.preferredMaxOccupants, 4);
 }
 
 async function testMissingConfigurationAndNoAvailability() {
@@ -84,13 +120,22 @@ async function testMissingConfigurationAndNoAvailability() {
     fetchImpl: async () => Response.json({ erro: 'Nenhum imóvel próprio disponível.' })
   });
   assert.deepEqual(await noAvailability.search({ from: '2026-10-16', to: '2026-10-18', persons: 2 }), []);
-  const unrecognized = new ImobClient({ authorization: 'Basic test', fetchImpl: async () => Response.json({ status: 'ok', message: 'consulta processada' }) });
+}
+
+async function testMinimumStayIsClassifiedWithoutRetry() {
+  let calls = 0;
+  const client = new ImobClient({
+    authorization: 'Basic test', retryDelayMs: 0,
+    fetchImpl: async () => {
+      calls += 1;
+      return Response.json({ erro: 'Min de 2 Noites' });
+    }
+  });
   await assert.rejects(
-    () => unrecognized.search({ from: '2026-10-16', to: '2026-10-18', persons: 2 }),
-    (error) => error instanceof ImobError && error.code === 'IMOB_INVALID_RESPONSE'
+    client.search({ from: '2026-10-16', to: '2026-10-17', persons: 2 }),
+    (error) => error.code === 'IMOB_MINIMUM_NIGHTS' && error.minimumNights === 2
   );
-  const recognizedEmpty = new ImobClient({ authorization: 'Basic test', fetchImpl: async () => Response.json({ opcoes: [] }) });
-  assert.deepEqual(await recognizedEmpty.search({ from: '2026-10-16', to: '2026-10-18', persons: 2 }), []);
+  assert.equal(calls, 1);
 }
 
 async function testReadOnlyQuoteRequestParsesPixPrice() {
@@ -119,9 +164,11 @@ async function testReadOnlyQuoteRequestParsesPixPrice() {
 
 async function main() {
   await testRequestContractAndAuthentication();
-  await testPropertyNameResolvesProviderIdThenSearchesScoped();
+  await testPropertyNameDoesNotGuessAnIdFromUnfilteredInventory();
   await testNumericCondominiumIdIsPassedDirectly();
+  await testPartySizeFiltersBroadInventoryByCapacityAndWidensWhenEmpty();
   await testMissingConfigurationAndNoAvailability();
+  await testMinimumStayIsClassifiedWithoutRetry();
   await testReadOnlyQuoteRequestParsesPixPrice();
   console.log('imob-client: all tests passed');
 }

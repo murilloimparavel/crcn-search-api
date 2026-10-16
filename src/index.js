@@ -132,6 +132,12 @@ function getTodayBRT() {
   };
 }
 
+function addDaysToIsoDate(isoDate, days) {
+  const date = new Date(`${isoDate}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
 function searchValidationError({ code, parameter, received, message, instrucao_para_o_agente }) {
   const today = getTodayBRT();
   return {
@@ -639,6 +645,7 @@ app.all('/api/v1/search', async (req, res) => {
 
   try {
     const startTime = Date.now();
+    let pageCandidates = [];
 
     // 6. Busca com cache e resolução unificada de propriedade (Stays + Imob)
     let staysPropertyNotFound = false;
@@ -647,6 +654,47 @@ app.all('/api/v1/search', async (req, res) => {
 
     if (filterInput.properties.length > 0) {
       resolvedProperty = await propertyCatalog.resolvePropertyFilter(filterInput.properties[0]);
+      if (resolvedProperty?.type === 'mapping_pending') {
+        return res.status(409).json({
+          sucesso: false,
+          codigo: 'PROPERTY_MAPPING_PENDING',
+          erro: 'O vínculo entre provedores desta propriedade ainda não foi validado; a busca foi interrompida para evitar consultar o condomínio errado.',
+          propriedade: {
+            property_key: resolvedProperty.propertyKey,
+            nome: resolvedProperty.name,
+            status_mapeamento: resolvedProperty.mappingStatus
+          },
+          instrucao_para_o_agente: {
+            o_que_fazer: 'Não diga que não há disponibilidade. Explique que não foi possível confirmar o empreendimento e encaminhe para atendimento humano.',
+            proibido: 'Não remova o filtro de propriedade nem escolha um ID de provedor por aproximação.'
+          }
+        });
+      }
+      if (resolvedProperty?.type === 'ambiguous') {
+        return res.status(409).json({
+          sucesso: false,
+          codigo: 'PROPERTY_AMBIGUOUS',
+          erro: 'O nome informado corresponde a mais de uma propriedade; a busca foi interrompida para evitar filtrar o condomínio errado.',
+          instrucao_para_o_agente: {
+            o_que_fazer: 'Mostre os resultados de buscar_propriedade_crcn e pergunte qual empreendimento o cliente deseja.',
+            proibido: 'Não escolha um resultado por aproximação nem remova o filtro de propriedade.'
+          }
+        });
+      }
+      if (!resolvedProperty || resolvedProperty.type === 'unknown') {
+        const propertyKeyRequired = resolvedProperty?.code === 'PROPERTY_KEY_REQUIRED';
+        return res.status(422).json({
+          sucesso: false,
+          codigo: propertyKeyRequired ? 'PROPERTY_KEY_REQUIRED' : 'PROPERTY_NOT_RESOLVED',
+          erro: propertyKeyRequired
+            ? 'O filtro de disponibilidade exige o property_key interno retornado pelo catálogo CRCN.'
+            : 'Não foi possível associar o empreendimento informado a uma propriedade única do catálogo CRCN.',
+          instrucao_para_o_agente: {
+            o_que_fazer: 'Pesquise o nome com buscar_propriedade_crcn e confirme com o cliente qual resultado corresponde ao empreendimento desejado.',
+            proibido: 'Não faça uma busca geral removendo o filtro de propriedade.'
+          }
+        });
+      }
     }
 
     if (resolvedProperty?.type === 'imob_only') {
@@ -663,6 +711,11 @@ app.all('/api/v1/search', async (req, res) => {
         if (error.code !== 'STAYS_FILTER_NOT_FOUND' || filterInput.properties.length === 0) throw error;
         staysPropertyNotFound = true;
         searchFilters = await staysClient.resolveSearchFilters({ ...filterInput, properties: [] });
+        logSearch('search.stays_property_filter_unavailable', {
+          request_id: requestId,
+          property_key: resolvedProperty?.propertyKey || null,
+          code: error.code
+        });
       }
     }
 
@@ -675,7 +728,7 @@ app.all('/api/v1/search', async (req, res) => {
       _candidate_limit: CANDIDATE_SEARCH_LIMIT,
       _page: page
     };
-    const { data: responseData, isHit } = await fetchWithDeduplication(
+    const { data: responseData, isHit, cacheStatus } = await fetchWithDeduplication(
       validFrom.str,
       validTo.str,
       numPersons,
@@ -691,7 +744,19 @@ app.all('/api/v1/search', async (req, res) => {
         };
         let staysFailed = false;
         let listings = [];
+        const providerResults = {
+          stays: {
+            status: resolvedProperty?.type === 'imob_only' ? 'not_required' : staysPropertyNotFound ? 'error' : 'not_queried',
+            property_filter: resolvedProperty?.staysId || null,
+            ...(staysPropertyNotFound ? { code: 'STAYS_FILTER_NOT_FOUND' } : {})
+          },
+          imob: {
+            status: imobClient.configured ? 'not_queried' : 'not_configured',
+            condominium_filter: resolvedProperty?.imobId || null
+          }
+        };
         if (!staysPropertyNotFound) {
+          if (resolvedProperty?.type !== 'imob_only') providerResults.stays.status = 'queried';
           try {
             const cachedStays = await fetchWithDeduplication(
               validFrom.str,
@@ -704,19 +769,24 @@ app.all('/api/v1/search', async (req, res) => {
                 persons: numPersons,
                 limit: CANDIDATE_SEARCH_LIMIT,
                 skip: candidateWindowOffset,
-                filters: searchFilters
+                filters: searchFilters,
+                requestId
               }),
-              candidateCacheFilters
+              candidateCacheFilters,
+              { cacheResult: false }
             );
             listings = cachedStays.data || [];
+            providerResults.stays.status = listings.length ? 'available' : 'no_availability';
+            providerResults.stays.total_encontrados = listings.length;
           } catch (staysErr) {
             logSearch('search.stays_failure_fallback_to_imob', {
               request_id: requestId,
-              error: staysErr.message,
               code: staysErr.code
             });
             staysFailed = true;
             listings = [];
+            providerResults.stays.status = 'error';
+            providerResults.stays.code = staysErr.code || 'STAYS_REQUEST_FAILED';
             if (!imobClient.configured) throw staysErr;
           }
         }
@@ -726,6 +796,10 @@ app.all('/api/v1/search', async (req, res) => {
         });
         let imobRecords = [];
         let fallbackWarning = null;
+        let capacityFallbackWarning = null;
+        let capacityFallbackUsed = false;
+        let minimumStayAlternative = null;
+        let minimumStayHandled = false;
         if (staysFailed) {
           fallbackWarning = {
             codigo: 'STAYS_UPSTREAM_UNAVAILABLE',
@@ -733,47 +807,205 @@ app.all('/api/v1/search', async (req, res) => {
           };
         }
         // Consulta Imob como contingência caso Stays falhe, propriedade seja exclusiva Imob, ou faltem opções para preencher a janela solicitada
-        const needsImobSupplement = staysPropertyNotFound || staysFailed ||
+        const imobPropertyRequired = resolvedProperty?.type === 'hybrid' || resolvedProperty?.type === 'imob_only';
+        const needsImobSupplement = imobPropertyRequired || staysPropertyNotFound || staysFailed ||
           orderedListings.length < offsetWithinWindow + limitResults ||
           (!filterInput.properties.length && orderedListings.length < 3);
 
         if (imobClient.configured && needsImobSupplement) {
+          providerResults.imob.status = 'queried';
           try {
             imobRecords = imobQueryTarget
               ? await imobClient.searchForProperty({
                   from: validFrom.str,
                   to: validTo.str,
                   persons: numPersons,
-                  propertyName: imobQueryTarget
+                  propertyName: imobQueryTarget,
+                  requestId
                 })
-              : await imobClient.search({
+              : await imobClient.searchByOccupancyRange({
                   from: validFrom.str,
                   to: validTo.str,
                   persons: numPersons,
-                  onePerCondominium: true
+                  requestId
                 });
 
-            // Usa sempre o nome canônico publicado no catálogo quando o ID for conhecido.
+            if (resolvedProperty?.imobId) {
+              const unexpectedRecords = imobRecords.filter((record) => {
+                const sourceId = record?.condominioId ?? record?.idCondominio ?? record?.condominio;
+                return sourceId == null || String(sourceId) !== String(resolvedProperty.imobId);
+              });
+              if (unexpectedRecords.length) {
+                logSearch('search.imob_property_scope_mismatch', {
+                  request_id: requestId,
+                  property_key: resolvedProperty.propertyKey,
+                  expected_condominium_id: String(resolvedProperty.imobId),
+                  rejected_records: unexpectedRecords.length
+                });
+                imobRecords = imobRecords.filter((record) => {
+                  const sourceId = record?.condominioId ?? record?.idCondominio ?? record?.condominio;
+                  return sourceId != null && String(sourceId) === String(resolvedProperty.imobId);
+                });
+              }
+            }
+
+            providerResults.imob.status = imobRecords.length ? 'available' : 'no_availability';
+            providerResults.imob.total_encontrados = imobRecords.length;
+
+            // Use sempre o nome canônico publicado no catálogo quando o ID for conhecido.
             imobRecords.forEach((record) => {
               const condominiumId = record?.condominioId ?? record?.idCondominio ?? record?.condominio;
               const canonicalName = propertyCatalog.getImobCondominiumName(condominiumId);
               if (canonicalName) record.nomeCond = canonicalName;
             });
 
+            capacityFallbackUsed = Boolean(imobRecords.capacityFallback);
+            if (capacityFallbackUsed) {
+              capacityFallbackWarning = {
+                codigo: 'IMOB_CAPACITY_FILTER_WIDENED',
+                mensagem: `Não houve opções na faixa preferida de capacidade até ${imobRecords.preferredMaxOccupants}. A busca foi ampliada para unidades maiores que acomodam ${numPersons} hóspedes.`
+              };
+              logSearch('search.imob_capacity_fallback', {
+                request_id: requestId,
+                persons: numPersons,
+                preferred_max_occupants: imobRecords.preferredMaxOccupants,
+                returned_options: imobRecords.length,
+                highest_returned_capacity: Math.max(0, ...imobRecords.map((record) => Number(record.maxOcupantes || record.max_ocupantes || record.capacidade || record.maxPax || 0)))
+              });
+            }
+
             // Registra dinamicamente no catálogo para próximas pesquisas
             imobRecords.forEach((record) => propertyCatalog.registerDiscoveredImob(record));
           } catch (error) {
+            providerResults.imob.status = 'error';
+            providerResults.imob.code = error.code || 'IMOB_REQUEST_FAILED';
+            if (error.code === 'IMOB_MINIMUM_NIGHTS' && Number.isInteger(error.minimumNights) && error.minimumNights > nights) {
+              minimumStayHandled = true;
+              const alternativeTo = addDaysToIsoDate(validFrom.str, error.minimumNights);
+              minimumStayAlternative = {
+                minimo_noites: error.minimumNights,
+                total_encontrados: 0,
+                periodo: {
+                  check_in: validFrom.str,
+                  check_out: alternativeTo,
+                  noites: error.minimumNights,
+                  hospedes: numPersons
+                },
+                opcoes: []
+              };
+              fallbackWarning = {
+                codigo: 'IMOB_MINIMUM_NIGHTS',
+                mensagem: `O Imob exige no mínimo ${error.minimumNights} noites. Foi consultada uma alternativa mantendo a entrada e os hóspedes.`
+              };
+              try {
+                const alternativeRecords = await imobClient.searchByOccupancyRange({
+                  from: validFrom.str,
+                  to: alternativeTo,
+                  persons: numPersons,
+                  condominiumId: resolvedProperty?.imobId || null,
+                  requestId
+                });
+                const alternativeCriteria = {
+                  from: validFrom.str,
+                  to: alternativeTo,
+                  persons: numPersons,
+                  nights: error.minimumNights,
+                  page
+                };
+                const alternativeOptions = alternativeRecords
+                  .map((record) => normalizeImobListing(record, alternativeCriteria))
+                  .filter((option) => option.link_reserva)
+                  .slice(0, limitResults);
+
+                await Promise.all(alternativeOptions.filter((option) => !option.valor_total && option.id).map(async (option) => {
+                  try {
+                    const pixPrice = await imobClient.getPixPrice({
+                      listingId: option.id,
+                      from: validFrom.str,
+                      to: alternativeTo,
+                      persons: numPersons
+                    });
+                    if (pixPrice) {
+                      option.valor_total = pixPrice;
+                      option.valor_diaria = Math.round((pixPrice / error.minimumNights) * 100) / 100;
+                    }
+                  } catch (priceError) {
+                    logSearch('search.imob_minimum_stay_price_error', {
+                      request_id: requestId,
+                      code: priceError.code || 'IMOB_PRICE_REQUEST_FAILED'
+                    });
+                  }
+                }));
+
+                minimumStayAlternative.total_encontrados = alternativeRecords.length;
+                minimumStayAlternative.opcoes = alternativeOptions;
+                minimumStayAlternative.capacidade_ampliada = Boolean(alternativeRecords.capacityFallback);
+                minimumStayAlternative.capacidade_maxima_preferida = alternativeRecords.preferredMaxOccupants;
+                if (minimumStayAlternative.capacidade_ampliada) {
+                  capacityFallbackWarning = {
+                    codigo: 'IMOB_CAPACITY_FILTER_WIDENED',
+                    mensagem: `Não houve opções na faixa preferida até ${alternativeRecords.preferredMaxOccupants}; a busca ampliou para acomodações maiores que comportam ${numPersons} hóspedes.`
+                  };
+                }
+                logSearch('search.imob_minimum_stay_fallback', {
+                  request_id: requestId,
+                  requested_from: validFrom.str,
+                  requested_to: validTo.str,
+                  alternative_to: alternativeTo,
+                  persons: numPersons,
+                  minimum_nights: error.minimumNights,
+                  returned_options: alternativeOptions.length
+                });
+              } catch (fallbackError) {
+                logSearch('search.imob_minimum_stay_fallback_error', {
+                  request_id: requestId,
+                  code: fallbackError.code || 'IMOB_REQUEST_FAILED',
+                  ...(fallbackError.status ? { status: fallbackError.status } : {}),
+                  ...(fallbackError.upstreamCode ? { upstream_code: fallbackError.upstreamCode } : {}),
+                  ...(fallbackError.upstreamMessage ? { upstream_message: fallbackError.upstreamMessage } : {}),
+                  attempts: fallbackError.attempts || 1
+                });
+              }
+            }
             if (error.code === 'IMOB_TARIFF_UNAVAILABLE') {
               fallbackWarning = {
                 codigo: error.code,
                 mensagem: 'A parceira complementar não tem tarifário disponível para esse período.'
               };
             }
-            logSearch('search.imob_error', {
-              request_id: requestId,
-              code: error.code || 'IMOB_REQUEST_FAILED'
-            });
+            if (minimumStayHandled) {
+              logSearch('search.imob_minimum_stay_detected', {
+                request_id: requestId,
+                minimum_nights: error.minimumNights,
+                alternative_to: minimumStayAlternative.periodo.check_out,
+                alternative_options: minimumStayAlternative.opcoes.length,
+                ...(error.upstreamMessage ? { upstream_message: error.upstreamMessage } : {})
+              });
+            } else {
+              logSearch('search.imob_error', {
+                request_id: requestId,
+                operation: 'availability_search',
+                code: error.code || 'IMOB_REQUEST_FAILED',
+                ...(error.status ? { status: error.status } : {}),
+                ...(error.upstreamCode ? { upstream_code: error.upstreamCode } : {}),
+                ...(error.upstreamMessage ? { upstream_message: error.upstreamMessage } : {}),
+                attempts: error.attempts || 1,
+                duration_ms: error.durationMs || null
+              });
+            }
           }
+        } else {
+          providerResults.imob.status = imobClient.configured
+            ? (imobPropertyRequired ? 'not_queried' : 'not_required')
+            : 'not_configured';
+          logSearch('provider.skipped', {
+            request_id: requestId,
+            provider: 'imob',
+            operation: 'availability_search',
+            reason: imobClient.configured ? 'not_needed_to_fill_results' : 'not_configured',
+            stays_candidates: orderedListings.length,
+            requested_results: limitResults
+          });
         }
 
         const nightsCriteria = {
@@ -805,7 +1037,7 @@ app.all('/api/v1/search', async (req, res) => {
           ...orderedListings.map((listing) => ({ provider: 'stays', listing })),
           ...diversifiedImob.map((listing) => ({ provider: 'imob', listing }))
         ];
-        const pageCandidates = portfolio.slice(offsetWithinWindow, offsetWithinWindow + limitResults);
+        pageCandidates = portfolio.slice(offsetWithinWindow, offsetWithinWindow + limitResults);
 
         // Otimização: Cota preço PIX SOMENTE para as opções do Imob que realmente entrarão na página!
         const imobRecordsById = new Map(imobCandidates.map((i) => [String(i.record?.id), i.record]));
@@ -853,10 +1085,36 @@ app.all('/api/v1/search', async (req, res) => {
         const hasMore = allOptions.length > 0 && (hasMoreInWindow || hasMoreCandidates);
 
         const today = getTodayBRT();
-        const noResultsInstruction = allOptions.length === 0 ? {
-          o_que_fazer: 'NÃO invente opções fictícias nem links de exemplo. Explique com cordialidade que não há apartamentos disponíveis para esse período exato e sugira datas alternativas (próximo fim de semana ou outra semana).',
-          sugestao_de_fala: 'Não encontrei apartamentos disponíveis para essas datas exatas. Você teria flexibilidade para viajar no final de semana seguinte ou em outras datas?'
-        } : null;
+        const requiredProviderNames = resolvedProperty?.type === 'hybrid'
+          ? ['stays', 'imob']
+          : resolvedProperty?.type === 'imob_only'
+            ? ['imob']
+            : resolvedProperty?.type === 'stays_only'
+              ? ['stays']
+              : ['stays'];
+        const providerSearchComplete = requiredProviderNames.every((name) =>
+          ['available', 'no_availability'].includes(providerResults[name]?.status)
+        );
+        const incompleteProviders = requiredProviderNames
+          .filter((name) => !['available', 'no_availability'].includes(providerResults[name]?.status))
+          .map((name) => ({ provider: name, status: providerResults[name]?.status || 'not_queried', code: providerResults[name]?.code || null }));
+        const providerCoverageWarning = incompleteProviders.length
+          ? {
+              codigo: 'PROVIDER_SEARCH_INCOMPLETE',
+              mensagem: 'A busca não foi concluída em todos os provedores vinculados a este empreendimento. Os resultados disponíveis são parciais; a ausência de opções não pode ser tratada como indisponibilidade confirmada.'
+            }
+          : null;
+        const noResultsInstruction = allOptions.length === 0
+          ? providerSearchComplete
+            ? {
+                o_que_fazer: 'NÃO invente opções fictícias nem links de exemplo. Os provedores requeridos foram consultados e não retornaram disponibilidade para esse período exato. Explique isso com cordialidade e sugira datas alternativas.',
+                sugestao_de_fala: 'Não encontrei apartamentos disponíveis para essas datas exatas. Você teria flexibilidade para viajar em outro período ou fim de semana?'
+              }
+            : {
+                o_que_fazer: 'A busca não foi concluída em todos os provedores vinculados a este empreendimento. NÃO afirme que não há disponibilidade. Explique que não conseguiu confirmar a consulta e encaminhe para atendimento humano ou tente novamente após corrigir a integração.',
+                sugestao_de_fala: 'Não consegui confirmar a disponibilidade em todos os sistemas para esse empreendimento. Vou pedir para um atendente verificar para você.'
+              }
+          : null;
 
         return {
           sucesso: true,
@@ -873,18 +1131,42 @@ app.all('/api/v1/search', async (req, res) => {
             hospedes: numPersons
           },
           filtros_aplicados: searchFilters,
+          provedores_consultados: providerResults,
           ...(noResultsInstruction ? { instrucao_para_o_agente: noResultsInstruction } : {}),
-          ...(fallbackWarning ? { avisos: [fallbackWarning] } : {}),
+          ...((fallbackWarning || capacityFallbackWarning) ? {
+            avisos: [fallbackWarning, capacityFallbackWarning].filter(Boolean)
+          } : {}),
+          ...(providerCoverageWarning ? {
+            avisos: [...(fallbackWarning || capacityFallbackWarning ? [fallbackWarning, capacityFallbackWarning].filter(Boolean) : []), providerCoverageWarning]
+          } : {}),
+          ...(capacityFallbackUsed ? {
+            instrucao_para_o_agente: {
+              o_que_fazer: 'A faixa preferida de capacidade não encontrou opções. A busca foi ampliada e encontrou acomodações maiores que comportam o grupo. Não diga que não há disponibilidade; informe claramente a capacidade de cada opção e confirme se o cliente aceita uma acomodação maior.',
+              sugestao_de_fala: `Não encontrei opções menores para ${numPersons} hóspedes, mas achei acomodações para esse grupo com capacidade maior. Posso te mostrar essas opções e informar a capacidade de cada uma?`
+            }
+          } : {}),
+          ...(minimumStayAlternative ? {
+            alternativa_estadia_minima: minimumStayAlternative,
+            instrucao_para_o_agente: {
+              o_que_fazer: minimumStayAlternative.opcoes.length
+                ? `O provedor exige uma estadia mínima. A API consultou automaticamente uma alternativa com a mesma entrada e o mesmo número de hóspedes. Apresente as opções com as datas exatas, explique a quantidade mínima de noites${minimumStayAlternative.capacidade_ampliada ? ', informe que a busca foi ampliada para unidades maiores e diga a capacidade de cada uma' : ''} e confirme se o cliente aceita esse período antes de avançar.`
+                : 'O provedor exige uma estadia mínima. A API tentou consultar uma alternativa com a mesma entrada e o mesmo número de hóspedes, mas não encontrou opções para esse período. Explique a regra mínima com clareza e pergunte se o cliente tem flexibilidade de datas.',
+              sugestao_de_fala: minimumStayAlternative.opcoes.length
+                ? `Para essa data de entrada, o Imob exige pelo menos ${minimumStayAlternative.minimo_noites} noites. Consultei opções para ${minimumStayAlternative.periodo.check_in} a ${minimumStayAlternative.periodo.check_out}; quer que eu te apresente essas alternativas?`
+                : `Para essa data de entrada, o Imob exige pelo menos ${minimumStayAlternative.minimo_noites} noites e não encontrei opções nesse período alternativo. Você teria flexibilidade para outras datas?`
+            }
+          } : {}),
           opcoes: allOptions
         };
       },
-      cacheFilters
+      cacheFilters,
+      { cacheResult: false }
     );
 
     // Ajustar opções conforme limitResults solicitado e tempo de resposta
     const finalOptions = responseData.opcoes.slice(0, limitResults);
     
-    res.setHeader('X-Cache', isHit ? 'HIT' : 'MISS');
+    res.setHeader('X-Cache', cacheStatus || (isHit ? 'HIT' : 'MISS'));
     const payload = {
       ...responseData,
       tempo_resposta_ms: isHit ? 5 : (Date.now() - startTime),
@@ -895,9 +1177,14 @@ app.all('/api/v1/search', async (req, res) => {
       from: validFrom.str,
       to: validTo.str,
       persons: numPersons,
-      cache: isHit ? 'HIT' : 'MISS',
+      cache: cacheStatus || (isHit ? 'HIT' : 'MISS'),
       total_encontrados: responseData.total_encontrados,
       returned_options: finalOptions.length,
+      provider_results: {
+        stays: pageCandidates.filter((candidate) => candidate.provider === 'stays').length,
+        imob: pageCandidates.filter((candidate) => candidate.provider === 'imob').length
+      },
+      provider_searches: responseData.provedores_consultados,
       duration_ms: Date.now() - startedAt
     });
     return res.json(payload);
