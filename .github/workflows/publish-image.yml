@@ -6,6 +6,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.ref == 'refs/heads/main' && 'search-api-production' || format('search-api-{0}', github.run_id) }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
@@ -32,7 +36,7 @@ jobs:
         run: npm audit --omit=dev
 
   publish:
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: test
     permissions:
       contents: read
@@ -68,3 +72,181 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+  deploy:
+    name: Deploy Search API to Coolify
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    permissions:
+      contents: read
+    env:
+      COOLIFY_BASE_URL: https://cy.caldasindica.com
+      COOLIFY_SERVICE_UUID: dwixf32tdj4e7pa04zniwmsk
+      COOLIFY_APP_UUID: j6wgxdo71gvd7eejfifi05p8
+      COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+      IMAGE_REF: ghcr.io/murilloimparavel/crcn-search-api-deploy:sha-${{ github.sha }}
+    steps:
+      - name: Validate deployment configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$COOLIFY_TOKEN" ]]; then
+            echo "Missing COOLIFY_TOKEN in the production environment secrets." >&2
+            exit 1
+          fi
+
+      - name: Read current image and status
+        id: previous
+        shell: bash
+        run: |
+          set -euo pipefail
+          response="$(mktemp)"
+          trap 'rm -f "$response"' EXIT
+          status_code="$(curl --silent --show-error --output "$response" --write-out '%{http_code}' \
+            --header "Authorization: Bearer $COOLIFY_TOKEN" \
+            --header 'Accept: application/json' \
+            --header 'User-Agent: curl/8.7.1' \
+            "$COOLIFY_BASE_URL/api/v1/services/$COOLIFY_SERVICE_UUID/applications/$COOLIFY_APP_UUID")"
+          if [[ "$status_code" != "200" ]]; then
+            echo "Could not read the Search API service from Coolify (HTTP $status_code)." >&2
+            exit 1
+          fi
+          previous_image="$(jq -er '.image | select(startswith("ghcr.io/murilloimparavel/crcn-search-api-deploy:"))' "$response")"
+          if [[ ! "$previous_image" =~ ^ghcr\.io/murilloimparavel/crcn-search-api-deploy:sha-[0-9a-f]{40}$ ]]; then
+            echo "Current Coolify image is not an immutable Search API SHA tag; refusing to deploy." >&2
+            exit 1
+          fi
+          previous_status="$(jq -er '.status' "$response")"
+          if [[ "$previous_status" != "running:healthy" ]]; then
+            echo "Search API is not healthy before deployment; refusing to replace it." >&2
+            exit 1
+          fi
+          previous_online_at="$(jq -r '.last_online_at // empty' "$response")"
+          printf 'image=%s\n' "$previous_image" >> "$GITHUB_OUTPUT"
+          printf 'online_at=%s\n' "$previous_online_at" >> "$GITHUB_OUTPUT"
+
+      - name: Set image to this commit
+        id: set-image
+        shell: bash
+        run: |
+          set -euo pipefail
+          payload="$(jq -cn --arg image "$IMAGE_REF" '{image: $image}')"
+          response="$(mktemp)"
+          trap 'rm -f "$response"' EXIT
+          status_code="$(curl --silent --show-error --output "$response" --write-out '%{http_code}' \
+            --request PATCH \
+            --header "Authorization: Bearer $COOLIFY_TOKEN" \
+            --header 'Accept: application/json' \
+            --header 'Content-Type: application/json' \
+            --header 'User-Agent: curl/8.7.1' \
+            --data "$payload" \
+            "$COOLIFY_BASE_URL/api/v1/services/$COOLIFY_SERVICE_UUID/applications/$COOLIFY_APP_UUID")"
+          if [[ "$status_code" != "200" ]]; then
+            echo "Could not update the Search API image in Coolify (HTTP $status_code)." >&2
+            exit 1
+          fi
+
+      - name: Redeploy only Search API
+        id: redeploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          response="$(mktemp)"
+          trap 'rm -f "$response"' EXIT
+          status_code="$(curl --silent --show-error --output "$response" --write-out '%{http_code}' \
+            --request POST \
+            --header "Authorization: Bearer $COOLIFY_TOKEN" \
+            --header 'Accept: application/json' \
+            --header 'User-Agent: curl/8.7.1' \
+            "$COOLIFY_BASE_URL/api/v1/services/$COOLIFY_SERVICE_UUID/applications/$COOLIFY_APP_UUID/start?latest=true")"
+          if [[ "$status_code" != "200" ]]; then
+            echo "Coolify did not accept the Search API redeploy (HTTP $status_code)." >&2
+            exit 1
+          fi
+
+      - name: Verify deployment health
+        id: verify
+        shell: bash
+        env:
+          PREVIOUS_ONLINE_AT: ${{ steps.previous.outputs.online_at }}
+        run: |
+          set -euo pipefail
+          response="$(mktemp)"
+          trap 'rm -f "$response"' EXIT
+          saw_transition=false
+          for attempt in $(seq 1 120); do
+            status_code="$(curl --silent --show-error --output "$response" --write-out '%{http_code}' \
+              --header "Authorization: Bearer $COOLIFY_TOKEN" \
+              --header 'Accept: application/json' \
+              --header 'User-Agent: curl/8.7.1' \
+              "$COOLIFY_BASE_URL/api/v1/services/$COOLIFY_SERVICE_UUID/applications/$COOLIFY_APP_UUID" || true)"
+            if [[ "$status_code" == "200" ]]; then
+              current_image="$(jq -r '.image // empty' "$response")"
+              current_status="$(jq -r '.status // empty' "$response")"
+              current_online_at="$(jq -r '.last_online_at // empty' "$response")"
+              if [[ "$current_status" != "running:healthy" || "$current_online_at" != "$PREVIOUS_ONLINE_AT" ]]; then
+                saw_transition=true
+              fi
+              if [[ "$current_image" == "$IMAGE_REF" && "$current_status" == "running:healthy" && "$saw_transition" == "true" ]]; then
+                if curl --fail --silent --show-error --max-time 10 https://search-api.caldasindica.com/health | jq -e '.status == "ok"' >/dev/null; then
+                  echo "Search API is healthy on the requested image."
+                  exit 0
+                fi
+              fi
+            fi
+            sleep 5
+          done
+          echo "Search API did not reach healthy state on the requested image within 10 minutes." >&2
+          exit 1
+
+      - name: Restore previous image if deployment failed
+        if: failure() && steps.previous.outputs.image != '' && steps.set-image.outcome == 'success'
+        shell: bash
+        env:
+          PREVIOUS_IMAGE: ${{ steps.previous.outputs.image }}
+        run: |
+          set -euo pipefail
+          payload="$(jq -cn --arg image "$PREVIOUS_IMAGE" '{image: $image}')"
+          response="$(mktemp)"
+          trap 'rm -f "$response"' EXIT
+          status_code="$(curl --silent --show-error --output "$response" --write-out '%{http_code}' \
+            --request PATCH \
+            --header "Authorization: Bearer $COOLIFY_TOKEN" \
+            --header 'Accept: application/json' \
+            --header 'Content-Type: application/json' \
+            --header 'User-Agent: curl/8.7.1' \
+            --data "$payload" \
+            "$COOLIFY_BASE_URL/api/v1/services/$COOLIFY_SERVICE_UUID/applications/$COOLIFY_APP_UUID")"
+          if [[ "$status_code" != "200" ]]; then
+            echo "Automatic image rollback could not update Coolify (HTTP $status_code)." >&2
+            exit 1
+          fi
+          status_code="$(curl --silent --show-error --output "$response" --write-out '%{http_code}' \
+            --request POST \
+            --header "Authorization: Bearer $COOLIFY_TOKEN" \
+            --header 'Accept: application/json' \
+            --header 'User-Agent: curl/8.7.1' \
+            "$COOLIFY_BASE_URL/api/v1/services/$COOLIFY_SERVICE_UUID/applications/$COOLIFY_APP_UUID/start?latest=true")"
+          if [[ "$status_code" != "200" ]]; then
+            echo "Coolify did not accept the rollback redeploy (HTTP $status_code)." >&2
+            exit 1
+          fi
+          for attempt in $(seq 1 60); do
+            status_code="$(curl --silent --show-error --output "$response" --write-out '%{http_code}' \
+              --header "Authorization: Bearer $COOLIFY_TOKEN" \
+              --header 'Accept: application/json' \
+              --header 'User-Agent: curl/8.7.1' \
+              "$COOLIFY_BASE_URL/api/v1/services/$COOLIFY_SERVICE_UUID/applications/$COOLIFY_APP_UUID" || true)"
+            if [[ "$status_code" == "200" ]] && [[ "$(jq -r '.image // empty' "$response")" == "$PREVIOUS_IMAGE" ]] && [[ "$(jq -r '.status // empty' "$response")" == "running:healthy" ]]; then
+              if curl --fail --silent --show-error --max-time 10 https://search-api.caldasindica.com/health | jq -e '.status == "ok"' >/dev/null; then
+                echo "Rollback to the previous image is healthy."
+                exit 0
+              fi
+            fi
+            sleep 5
+          done
+          echo "Rollback did not restore a healthy Search API within 5 minutes." >&2
+          exit 1
