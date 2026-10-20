@@ -248,14 +248,6 @@ function publicError(res, error) {
   });
 }
 
-function getTodayIsoBRT() {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit'
-  }).formatToParts(new Date());
-  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
-  return `${values.year}-${values.month}-${values.day}`;
-}
-
 function reservationLookupAuthorized(req) {
   const expected = process.env.RESERVATION_LOOKUP_TOKEN;
   if (!expected) return { configured: false, authorized: false };
@@ -265,15 +257,6 @@ function reservationLookupAuthorized(req) {
   const sameLength = expectedBuffer.length === suppliedBuffer.length;
   const authorized = sameLength && timingSafeEqual(expectedBuffer, suppliedBuffer);
   return { configured: true, authorized };
-}
-
-function asReservationList(response) {
-  if (Array.isArray(response)) return response;
-  if (!response || typeof response !== 'object') return null;
-  for (const key of ['data', 'reservations', 'results', 'items']) {
-    if (Array.isArray(response[key])) return response[key];
-  }
-  return null;
 }
 
 function asPaymentList(response) {
@@ -312,39 +295,25 @@ app.get('/api/v1/reservations/:partnerCode', async (req, res) => {
   const requestId = req.get('x-request-id') || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const startedAt = Date.now();
   try {
-    const exportResponse = await staysClient.searchReservationByPartnerCode(partnerCode, {
-      from: '2000-01-01',
-      to: getTodayIsoBRT()
-    });
-    const exportedReservations = asReservationList(exportResponse);
-    if (!exportedReservations) {
+    // Stays resolves partnerCode directly on the detail endpoint. The export
+    // filter can return an empty list for valid Booking.com reservations.
+    const reservation = await staysClient.getReservation(partnerCode);
+    if (!reservation || typeof reservation !== 'object' || Array.isArray(reservation)) {
       logSearch('reservation.lookup.invalid_response', { request_id: requestId, duration_ms: Date.now() - startedAt });
-      return res.status(502).json({ sucesso: false, codigo: 'STAYS_INVALID_RESERVATION_RESPONSE', erro: 'A consulta de reservas retornou um formato inesperado.' });
+      return res.status(502).json({ sucesso: false, codigo: 'STAYS_INVALID_RESERVATION_DETAILS', erro: 'A Stays retornou detalhes de reserva em formato inesperado.' });
     }
-
-    const matches = exportedReservations.filter((item) => String(item?.partnerCode || '').trim().toLocaleLowerCase('pt-BR') === partnerCode.toLocaleLowerCase('pt-BR'));
-    if (matches.length === 0) {
-      logSearch('reservation.lookup.not_found', { request_id: requestId, duration_ms: Date.now() - startedAt });
+    if (String(reservation.partnerCode || '').trim().toLocaleLowerCase('pt-BR') !== partnerCode.toLocaleLowerCase('pt-BR')) {
+      logSearch('reservation.lookup.identifier_mismatch', { request_id: requestId, duration_ms: Date.now() - startedAt });
       return res.status(404).json({
         sucesso: true,
         encontrada: false,
         mensagem: 'Não encontrei uma reserva com esse código. Confira se o código foi digitado corretamente.'
       });
     }
-    if (matches.length > 1) {
-      logSearch('reservation.lookup.ambiguous', { request_id: requestId, matches: matches.length, duration_ms: Date.now() - startedAt });
-      return res.status(409).json({ sucesso: false, codigo: 'AMBIGUOUS_PARTNER_CODE', erro: 'O código corresponde a mais de uma reserva. Encaminhe para conferência humana.' });
-    }
 
-    const exported = matches[0];
-    const internalId = exported._id || exported.id;
+    const internalId = reservation._id || reservation.id;
     if (!internalId) {
       return res.status(502).json({ sucesso: false, codigo: 'STAYS_RESERVATION_ID_MISSING', erro: 'A reserva foi localizada, mas não foi possível consultar os detalhes.' });
-    }
-
-    const reservation = await staysClient.getReservation(internalId);
-    if (!reservation || typeof reservation !== 'object' || Array.isArray(reservation)) {
-      return res.status(502).json({ sucesso: false, codigo: 'STAYS_INVALID_RESERVATION_DETAILS', erro: 'A Stays retornou detalhes de reserva em formato inesperado.' });
     }
 
     const warnings = [];
@@ -400,6 +369,14 @@ app.get('/api/v1/reservations/:partnerCode', async (req, res) => {
       avisos: warnings
     });
   } catch (error) {
+    if (error.status === 404) {
+      logSearch('reservation.lookup.not_found', { request_id: requestId, duration_ms: Date.now() - startedAt });
+      return res.status(404).json({
+        sucesso: true,
+        encontrada: false,
+        mensagem: 'Não encontrei uma reserva com esse código. Confira se o código foi digitado corretamente.'
+      });
+    }
     logSearch('reservation.lookup.error', {
       request_id: requestId,
       code: error.code || 'RESERVATION_LOOKUP_FAILED',

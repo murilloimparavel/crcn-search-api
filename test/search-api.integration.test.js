@@ -48,6 +48,27 @@ global.fetch = async (input, options = {}) => {
     const count = body.guests === 5 ? 3 : 1;
     return Response.json(Array.from({ length: count }, (_, i) => staysListing(`STAY-${body.guests}-${i}`, `P-${i}`, 500 + i * 100)));
   }
+  if (url.hostname === 'stays.test' && url.pathname.includes('/booking/reservations/')) {
+    const reservationId = decodeURIComponent(url.pathname.split('/').pop());
+    if (url.pathname.endsWith('/payments')) return Response.json([]);
+    if (reservationId === '5237057474') {
+      return Response.json({
+        _id: 'internal-reservation-1',
+        id: 'QC02J',
+        partnerCode: '5237057474',
+        _idlisting: 'RESERVATION-LISTING',
+        type: 'canceled',
+        partner: { name: 'API booking.com' },
+        checkInDate: '2026-10-21',
+        checkOutDate: '2026-10-24',
+        guests: 6,
+        guestsDetails: { adults: 5, children: 1 },
+        price: { currency: 'BRL', _f_total: 1200 },
+        stats: { _f_totalPaid: 0 }
+      });
+    }
+    return Response.json({ message: 'Not found' }, { status: 404 });
+  }
   if (url.hostname === 'stays.test' && url.pathname.includes('/content/listings/')) {
     const id = decodeURIComponent(url.pathname.split('/').pop());
     const index = Number(id.slice(-1)) || 0;
@@ -61,6 +82,9 @@ global.fetch = async (input, options = {}) => {
       _f_bathrooms: 1,
       address: { city: 'Caldas Novas' }
     });
+  }
+  if (url.hostname === 'stays.test' && url.pathname.includes('/content/properties/')) {
+    return Response.json({ _mstitle: { pt_BR: 'Condomínio Teste' } });
   }
   if (url.hostname === 'imob.test' && url.pathname.endsWith('/listOrcamento')) {
     const body = JSON.parse(options.body || '{}');
@@ -105,6 +129,7 @@ async function main() {
   process.env.STAYS_BASE_URL = 'https://stays.test/external/v1';
   process.env.STAYS_CLIENT_ID = 'test-client-id';
   process.env.STAYS_CLIENT_SECRET = 'test-client-secret';
+  process.env.RESERVATION_LOOKUP_TOKEN = 'test-reservation-token';
   process.env.IMOB_BASE_URL = 'https://imob.test/crcn';
   process.env.IMOB_PUBLIC_BASE_URL = 'https://reservascrcn.test';
   process.env.IMOB_AUTHORIZATION = 'Basic test-token';
@@ -112,6 +137,33 @@ async function main() {
 
   const baseUrl = `http://127.0.0.1:${port}`;
   await waitForHealth(`${baseUrl}/health`);
+
+  const unauthenticatedLookup = await nativeFetch(`${baseUrl}/api/v1/reservations/5237057474`);
+  assert.equal(unauthenticatedLookup.status, 401);
+  const invalidTokenLookup = await nativeFetch(`${baseUrl}/api/v1/reservations/5237057474`, {
+    headers: { 'x-reservation-lookup-token': 'invalid-token' }
+  });
+  assert.equal(invalidTokenLookup.status, 401);
+  upstreamCalls.length = 0;
+  const reservationLookup = await nativeFetch(`${baseUrl}/api/v1/reservations/5237057474`, {
+    headers: { 'x-reservation-lookup-token': 'test-reservation-token' }
+  });
+  const reservationPayload = await reservationLookup.json();
+  assert.equal(reservationLookup.status, 200);
+  assert.equal(reservationPayload.sucesso, true);
+  assert.equal(reservationPayload.encontrada, true);
+  assert.equal(reservationPayload.reserva.canal, 'API booking.com');
+  assert.equal(reservationPayload.reserva.status.codigo, 'canceled');
+  assert.equal(reservationPayload.reserva.hospedes.total, 6);
+  assert.equal(upstreamCalls.some((call) => call.url.pathname.endsWith('/booking/reservations/5237057474')), true);
+  assert.equal(upstreamCalls.some((call) => call.url.pathname.includes('/booking/reservations-export')), false);
+  const missingLookup = await nativeFetch(`${baseUrl}/api/v1/reservations/DOES-NOT-EXIST`, {
+    headers: { 'x-reservation-lookup-token': 'test-reservation-token' }
+  });
+  const missingPayload = await missingLookup.json();
+  assert.equal(missingLookup.status, 404);
+  assert.equal(missingPayload.sucesso, true);
+  assert.equal(missingPayload.encontrada, false);
 
   const response = await nativeFetch(`${baseUrl}/api/v1/search`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },

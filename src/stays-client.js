@@ -179,13 +179,6 @@ class StaysClient {
     return this.request(`/content/properties/${encodeURIComponent(id)}`);
   }
 
-  async searchReservationByPartnerCode(partnerCode, { from, to }) {
-    return this.request('/booking/reservations-export', {
-      method: 'POST',
-      body: { from, to, dateType: 'creation', partnerCode }
-    });
-  }
-
   async getReservation(id) {
     return this.request(`/booking/reservations/${encodeURIComponent(id)}`);
   }
