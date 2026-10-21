@@ -945,9 +945,28 @@
           "https://reservascrcn.com.br/condominio/88"
         ]
       }
+    },
+    {
+      "property_key": "crcn:hotel-lago-das-brisas",
+      "canonical_name": "CRCN - Hotel Lago das Brisas",
+      "status": "active",
+      "aliases": [],
+      "sources": {
+        "imob": null,
+        "stays": {
+          "id": "6a6a07311c6f1aedf2e3971c",
+          "alternate_ids": [
+            "MW01J"
+          ],
+          "name": "CRCN - Hotel Lago das Brisas",
+          "alternate_names": [],
+          "status": "active"
+        }
+      },
+      "match_status": "pending_review"
     }
   ],
-  "last_sync": "2026-10-15T19:11:00.010Z",
+  "last_sync": "2026-10-21T13:56:54.495Z",
   "reconciliation": {
     "synced_at": "2026-10-15T19:05:24.585Z",
     "imob_seen": 37,
@@ -1233,6 +1252,13 @@
       "source": "stays",
       "id": "6a690a26f98f4b0dc2168ba4",
       "name": "CRCN - Amethist Tower",
+      "reason": "unmatched_source_record",
+      "suggestions": []
+    },
+    {
+      "source": "stays",
+      "id": "6a6a07311c6f1aedf2e3971c",
+      "name": "CRCN - Hotel Lago das Brisas",
       "reason": "unmatched_source_record",
       "suggestions": []
     },
