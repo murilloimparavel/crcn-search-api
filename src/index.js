@@ -169,6 +169,37 @@ function searchValidationError({ code, parameter, received, message, instrucao_p
   };
 }
 
+function searchFilterNotFoundPayload(error) {
+  const filterLabels = {
+    amenities: 'comodidades',
+    inventory: 'inventário',
+    properties: 'propriedades',
+    cities: 'cidades'
+  };
+  const filterLabel = filterLabels[error.filterGroup] || 'filtro';
+  return {
+    sucesso: false,
+    codigo: 'STAYS_FILTER_NOT_FOUND',
+    erro: `Não reconheci o valor informado para ${filterLabel} no catálogo atual da Stays.`,
+    filtro: {
+      categoria: error.filterGroup || null,
+      categoria_exibida: filterLabel,
+      valor_recebido: error.unknownValue || null,
+      opcoes_validas: error.availableOptions || [],
+      total_opcoes_validas: error.availableOptionCount || 0,
+      limite_opcoes_retornadas: 25,
+      lista_truncada: Boolean(error.optionsTruncated),
+      valor_exato_reconhecido: false,
+      equivalencia_semantica_confirmada: false,
+      catalogo_completo_endpoint: '/api/v1/searchfilters'
+    },
+    instrucao_para_o_agente: {
+      o_que_fazer: `O valor informado para ${filterLabel} não corresponde a uma opção exata do catálogo e não há uma equivalência semântica confirmada. Não repita automaticamente a busca, não substitua por uma opção parecida e não remova esse filtro. As opções retornadas são apenas valores reconhecidos, não equivalentes ao pedido. Pergunte se o cliente aceita prosseguir sem esse requisito; só faça uma nova busca sem ele após consentimento explícito. Se o cliente quiser escolher um valor exato do catálogo, mostre as opções ou consulte a lista completa em GET /api/v1/searchfilters.`,
+      proibido: 'Não aplique correspondência aproximada silenciosa, não apresente outra comodidade como equivalente, não escolha uma opção por conta própria e não execute uma busca mais ampla sem o consentimento do cliente.'
+    }
+  };
+}
+
 function logSearch(event, fields = {}) {
   console.log(JSON.stringify({
     event,
@@ -712,18 +743,32 @@ app.all('/api/v1/search', async (req, res) => {
           properties: staysInputProperties
         });
       } catch (error) {
-        if (error.code !== 'STAYS_FILTER_NOT_FOUND' || filterInput.properties.length === 0) throw error;
-        staysPropertyNotFound = true;
-        searchFilters = await staysClient.resolveSearchFilters({ ...filterInput, properties: [] });
-        logSearch('search.stays_property_filter_unavailable', {
-          request_id: requestId,
-          property_key: resolvedProperty?.propertyKey || null,
-          code: error.code
-        });
+        if (error.code !== 'STAYS_FILTER_NOT_FOUND') throw error;
+        // A property may fall back to Imob only when the canonical hybrid property's
+        // Imob ID remains enforced. Never turn an invalid Stays-only property into a
+        // general portfolio search by dropping its property constraint.
+        if (error.filterGroup === 'properties' && resolvedProperty?.type === 'hybrid') {
+          staysPropertyNotFound = true;
+          try {
+            searchFilters = await staysClient.resolveSearchFilters({ ...filterInput, properties: [] });
+          } catch (fallbackError) {
+            if (fallbackError.code !== 'STAYS_FILTER_NOT_FOUND') throw fallbackError;
+            return res.status(422).json(searchFilterNotFoundPayload(fallbackError));
+          }
+          logSearch('search.stays_property_filter_unavailable', {
+            request_id: requestId,
+            property_key: resolvedProperty?.propertyKey || null,
+            code: error.code
+          });
+        } else {
+          return res.status(422).json(searchFilterNotFoundPayload(error));
+        }
       }
     }
 
-    const imobQueryTarget = resolvedProperty?.imobId || resolvedProperty?.imobName || (filterInput.properties.length ? filterInput.properties[0] : null);
+    const imobQueryTarget = resolvedProperty?.type === 'stays_only'
+      ? null
+      : (resolvedProperty?.imobId || resolvedProperty?.imobName || (filterInput.properties.length ? filterInput.properties[0] : null));
 
     const cacheFilters = {
       ...searchFilters,
@@ -756,7 +801,9 @@ app.all('/api/v1/search', async (req, res) => {
             ...(staysPropertyNotFound ? { code: 'STAYS_FILTER_NOT_FOUND' } : {})
           },
           imob: {
-            status: imobClient.configured ? 'not_queried' : 'not_configured',
+            status: resolvedProperty?.type === 'stays_only'
+              ? 'not_required'
+              : (imobClient.configured ? 'not_queried' : 'not_configured'),
             condominium_filter: resolvedProperty?.imobId || null,
             ...(imobAmenityUnsupported ? { code: 'AMENITY_FILTER_UNSUPPORTED' } : {})
           }
@@ -814,9 +861,11 @@ app.all('/api/v1/search', async (req, res) => {
         }
         // Consulta Imob como contingência caso Stays falhe, propriedade seja exclusiva Imob, ou faltem opções para preencher a janela solicitada
         const imobPropertyRequired = resolvedProperty?.type === 'hybrid' || resolvedProperty?.type === 'imob_only';
-        const needsImobSupplement = imobPropertyRequired || staysPropertyNotFound || staysFailed ||
+        const needsImobSupplement = resolvedProperty?.type !== 'stays_only' && (
+          imobPropertyRequired || staysPropertyNotFound || staysFailed ||
           orderedListings.length < offsetWithinWindow + limitResults ||
-          (!filterInput.properties.length && orderedListings.length < 3);
+          (!filterInput.properties.length && orderedListings.length < 3)
+        );
 
         if (imobClient.configured && needsImobSupplement && !hasAmenityPreference) {
           providerResults.imob.status = 'queried';
@@ -1001,9 +1050,11 @@ app.all('/api/v1/search', async (req, res) => {
             }
           }
         } else {
-          providerResults.imob.status = imobClient.configured
-            ? (imobAmenityUnsupported ? 'not_queried' : (imobPropertyRequired ? 'not_queried' : 'not_required'))
-            : 'not_configured';
+          providerResults.imob.status = resolvedProperty?.type === 'stays_only'
+            ? 'not_required'
+            : (imobClient.configured
+              ? (imobAmenityUnsupported ? 'not_queried' : (imobPropertyRequired ? 'not_queried' : 'not_required'))
+              : 'not_configured');
           logSearch('provider.skipped', {
             request_id: requestId,
             provider: 'imob',
@@ -1097,7 +1148,9 @@ app.all('/api/v1/search', async (req, res) => {
             ? ['imob']
             : resolvedProperty?.type === 'stays_only'
               ? ['stays']
-              : ['stays'];
+              : (!resolvedProperty && allOptions.length === 0 && imobClient.configured)
+                ? ['stays', 'imob']
+                : ['stays'];
         const incompleteProviders = requiredProviderNames
           .filter((name) => !['available', 'no_availability'].includes(providerResults[name]?.status))
           .map((name) => ({ provider: name, status: providerResults[name]?.status || 'not_queried', code: providerResults[name]?.code || null }));
@@ -1110,12 +1163,15 @@ app.all('/api/v1/search', async (req, res) => {
         const partialAmenityCoverage = hasAmenityPreference && providerResults.stays.status === 'no_availability' &&
           providerResults.imob.code === 'AMENITY_FILTER_UNSUPPORTED';
 
-        // Only search nearby Stays dates after both sources explicitly confirmed no inventory
-        // for the originally requested period. Errors, skipped sources, and unsupported filters
-        // are inconclusive and must never be represented as confirmed unavailability.
-        const alternativeDatesEligible = allOptions.length === 0 &&
-          providerResults.stays.status === 'no_availability' &&
-          providerResults.imob.status === 'no_availability';
+        // Only search nearby Stays dates after every applicable source explicitly confirmed
+        // no inventory for the originally requested period. Errors, skipped sources, and
+        // unsupported filters are inconclusive and never count as confirmed unavailability.
+        const alternativeProviderCoverageComplete = resolvedProperty?.type === 'stays_only'
+          ? providerResults.stays.status === 'no_availability'
+          : resolvedProperty?.type === 'hybrid' || !resolvedProperty
+            ? providerResults.stays.status === 'no_availability' && providerResults.imob.status === 'no_availability'
+            : false;
+        const alternativeDatesEligible = allOptions.length === 0 && alternativeProviderCoverageComplete;
         let alternativeDates = null;
         if (alternativeDatesEligible) {
           const searchedDates = [];
@@ -1202,6 +1258,9 @@ app.all('/api/v1/search', async (req, res) => {
             nights_preserved: nights
           });
         }
+        const originalPeriodNoAvailabilityText = resolvedProperty?.type === 'stays_only'
+          ? 'A Stays confirmou indisponibilidade'
+          : 'Stays e Imob confirmaram indisponibilidade';
         const noResultsInstruction = allOptions.length === 0
           ? partialAmenityCoverage
             ? {
@@ -1210,17 +1269,17 @@ app.all('/api/v1/search', async (req, res) => {
               }
             : alternativeDates?.estado === 'encontradas'
             ? {
-                o_que_fazer: 'Os provedores Stays e Imob confirmaram que não há opções no período pedido. A Search API consultou somente a Stays para datas próximas, preservando a duração da estadia, hóspedes e filtros aplicáveis. Apresente as datas exatas e as opções retornadas; pergunte se o cliente aceita um dos períodos antes de avançar. Não trate essas opções como disponíveis nas datas originais.',
+                o_que_fazer: `${originalPeriodNoAvailabilityText} no período pedido. A Search API consultou somente a Stays para datas próximas, preservando a duração da estadia, hóspedes e filtros aplicáveis. Apresente as datas exatas e as opções retornadas; pergunte se o cliente aceita um dos períodos antes de avançar. Não trate essas opções como disponíveis nas datas originais.`,
                 sugestao_de_fala: `Não encontrei opções para as datas escolhidas. Encontrei disponibilidade de ${formatAlternativePeriods(alternativeDates.periodos)}; algum desses períodos funciona para você?`
               }
             : alternativeDates?.estado === 'busca_incompleta'
             ? {
-                o_que_fazer: 'Os provedores confirmaram indisponibilidade no período pedido, mas a busca de datas próximas na Stays ficou incompleta. Não afirme que não há alternativas. Informe que não foi possível confirmar outros períodos e encaminhe para atendimento humano.',
+                o_que_fazer: `${originalPeriodNoAvailabilityText} no período pedido, mas a busca de datas próximas na Stays ficou incompleta. Não afirme que não há alternativas. Informe que não foi possível confirmar outros períodos e encaminhe para atendimento humano.`,
                 sugestao_de_fala: 'Não encontrei opções para essas datas e não consegui confirmar alternativas próximas agora. Posso pedir para um atendente verificar outros períodos para você?'
               }
             : alternativeDates?.estado === 'nao_encontradas_no_limite'
             ? {
-                o_que_fazer: `Os provedores confirmaram indisponibilidade no período pedido. A Stays também foi consultada em datas próximas, preservando a duração e os filtros, mas não encontrou opções dentro da janela de ${ALTERNATIVE_DATE_WINDOW_DAYS} dias. Pergunte se o cliente aceita ampliar o período de busca; não afirme indisponibilidade fora dessa janela.`,
+                o_que_fazer: `${originalPeriodNoAvailabilityText} no período pedido. A Stays também foi consultada em datas próximas, preservando a duração e os filtros, mas não encontrou opções dentro da janela de ${ALTERNATIVE_DATE_WINDOW_DAYS} dias. Pergunte se o cliente aceita ampliar o período de busca; não afirme indisponibilidade fora dessa janela.`,
                 sugestao_de_fala: `Não encontrei opções para as datas escolhidas nem nos períodos próximos que consultei. Você gostaria que eu ampliasse a busca para outras datas?`
               }
             : {

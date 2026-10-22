@@ -37,6 +37,28 @@ async function testFilterCatalogAndResolution() {
   assert.equal(calls.filter((path) => path.endsWith('/booking/searchfilter')).length, 1);
 }
 
+async function testUnknownFilterReturnsCappedCatalogOptionsWithoutFuzzyMatch() {
+  const amenities = Array.from({ length: 30 }, (_, index) => ({
+    _id: `amenity-${index + 1}`,
+    _mstitle: { pt_BR: `Comodidade ${index + 1}` }
+  }));
+  const client = new StaysClient({
+    baseUrl: 'https://stays.test/external/v1', clientId: 'id', clientSecret: 'secret',
+    fetchImpl: async () => Response.json({ amenities })
+  });
+  await assert.rejects(client.resolveSearchFilters({ amenities: ['pet'] }), (error) => {
+    assert.ok(error instanceof StaysError);
+    assert.equal(error.code, 'STAYS_FILTER_NOT_FOUND');
+    assert.equal(error.filterGroup, 'amenities');
+    assert.equal(error.unknownValue, 'pet');
+    assert.equal(error.availableOptionCount, 30);
+    assert.equal(error.availableOptions.length, 25);
+    assert.equal(error.availableOptions[0].nome, 'Comodidade 1');
+    assert.equal(error.optionsTruncated, true);
+    return true;
+  });
+}
+
 async function testUnauthorizedErrorDoesNotLeakCredentials() {
   const client = new StaysClient({
     baseUrl: 'https://stays.test/external/v1', clientId: 'private-id', clientSecret: 'private-secret',
@@ -70,6 +92,7 @@ async function testReadOnlyReservationEndpoints() {
 async function main() {
   await testOfficialSearchUsesBasicAuthAndJson();
   await testFilterCatalogAndResolution();
+  await testUnknownFilterReturnsCappedCatalogOptionsWithoutFuzzyMatch();
   await testUnauthorizedErrorDoesNotLeakCredentials();
   await testReadOnlyReservationEndpoints();
   console.log('stays-client: all tests passed');
