@@ -5,6 +5,7 @@ const { timingSafeEqual } = require('node:crypto');
 const { StaysClient } = require('./stays-client');
 const { ImobClient } = require('./imob-client');
 const { PropertyCatalog } = require('./property-catalog');
+const { resolveFeature } = require('./property-feature-search');
 const { normalizeImobListing } = require('./imob-normalizer');
 const { processAndRankResults, selectDiverseListings, assignSuggestedTags, normalizeProperty, getAmenityNames, getTitle, cleanText } = require('./normalizer');
 const { fetchWithDeduplication, clearCache } = require('./cache');
@@ -458,6 +459,37 @@ app.get('/api/v1/searchfilters', async (req, res) => {
 app.get('/api/v1/properties', async (req, res) => {
   try {
     const query = String(req.query.q || req.query.query || '').trim();
+    const featureInput = String(req.query.feature || '').trim();
+    const inferredFeature = !featureInput && resolveFeature(query) ? query : '';
+    if (featureInput || inferredFeature) {
+      const page = Number(req.query.page || 1);
+      if (!Number.isInteger(page) || page < 1 || page > 100) {
+        return res.status(400).json({ sucesso: false, codigo: 'INVALID_PAGE', erro: 'page deve ser inteiro entre 1 e 100.' });
+      }
+      const result = await propertyCatalog.searchPropertiesByFeature(featureInput || inferredFeature, {
+        page,
+        nameQuery: inferredFeature ? '' : query
+      });
+      if (result.unsupported) {
+        return res.status(422).json({
+          sucesso: false,
+          codigo: 'PROPERTY_FEATURE_UNSUPPORTED',
+          caracteristica_solicitada: featureInput,
+          caracteristicas_disponiveis: result.supported,
+          orientacao: 'Não substitua por uma característica parecida. Pergunte se o cliente aceita uma das características disponíveis.'
+        });
+      }
+      return res.json({
+        sucesso: true,
+        modo: 'caracteristica',
+        caracteristica: result.feature,
+        total_encontrados: result.total,
+        propriedades: result.properties,
+        proxima_pagina: result.nextPage,
+        cobertura: result.coverage,
+        orientacao: 'Use o property_key de cada condomínio encontrado para consultar disponibilidade nas datas e hóspedes informados. Se a cobertura estiver incompleta, não afirme que não existem outros condomínios com a característica. A descrição do condomínio não confirma regras específicas de cada unidade.'
+      });
+    }
     if (!query) return res.status(400).json({ sucesso: false, codigo: 'MISSING_PROPERTY_QUERY', erro: 'Informe parte do nome da propriedade em q.' });
     const enriched = await propertyCatalog.searchProperties(query);
     return res.json({

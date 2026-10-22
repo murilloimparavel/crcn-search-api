@@ -64,6 +64,7 @@ Quando o Imob rejeitar a estadia por quantidade mínima de noites, a API identif
 
 - `GET /api/v1/searchfilters`: catálogo de comodidades, propriedades, cidades, quartos e inventário.
 - `GET /api/v1/properties?q=Thermas`: pesquisa empreendimentos pelo nome.
+- `GET /api/v1/properties?feature=bar%20molhado`: descobre condomínios cuja descrição confirma uma característica textual, com evidência, `property_key`, paginação e cobertura. Reconhece `bar molhado` e `aceita pets`; `q=bar%20molhado` e `q=pet` também funcionam para a tool atual do EvoCRM. A API lê os detalhes de propriedades Stays com até oito chamadas simultâneas e timeout de dois segundos por detalhe, e guarda o resultado por cinco minutos. Falhas deixam a cobertura incompleta na resposta. Vínculos Stays/Imob pendentes não entram na lista de candidatos para cotação. A descoberta não consulta disponibilidade nem confirma regras específicas da unidade.
 - `GET /api/v1/listings/{id}`: detalhes, regras, comodidades e imagens de um anúncio.
 
 ### Consulta de reserva pelo código da plataforma

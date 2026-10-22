@@ -12,6 +12,10 @@ A tool `buscar_propriedade_crcn` recebe o trecho do nome que o cliente mencionou
 - Limite: até cinco correspondências, com o `property_key` estável e o nome canônico. A resposta também pode incluir os IDs de origem (`stays_id` e `imob_id`) apenas para diagnóstico; a IA deve usar `property_key` na busca de disponibilidade.
 - Descrição da tool deve instruir: escolher a opção por `nome`, confirmar se houver ambiguidade e guardar seu `property_key`; nunca passar `stays_id`, `imob_id` ou ID numérico como propriedade.
 
+Para características textuais do condomínio que não têm filtro exato na Stays, a mesma rota aceita `feature=bar molhado` ou `feature=aceita pets`. Enquanto a tool do EvoCRM tiver apenas o parâmetro obrigatório `q`, envie `q="bar molhado"` ou `q="pet"`: a API reconhece esses termos como busca por característica. O resultado inclui até cinco condomínios por página, `property_key`, trecho de evidência e `proxima_pagina`. Descrições faltantes aparecem em `cobertura.properties_not_checked`; não trate essa cobertura parcial como ausência da característica. `Bar` não equivale a `bar molhado`.
+
+Após receber os candidatos, chame `buscar_disponibilidade_crcn` para cada `property_key`, preservando datas e hóspedes. Continue pelos candidatos ou pela próxima página até reunir opções adequadas ou esgotar os candidatos verificados. Apresente apenas acomodações devolvidas pela busca de disponibilidade. Para pets, a descrição do condomínio é uma pista; confirme as regras da unidade antes de dizer que ela aceita animais. A rota de detalhes de unidade existe, mas precisa ser vinculada como tool para essa confirmação automática.
+
 Exemplo: para “Quero um hotel no Eldorado”, chamar a tool com `q="Eldorado"`. Se houver várias correspondências, perguntar qual empreendimento a pessoa prefere. Não escolher uma propriedade aleatoriamente.
 
 ## Busca de disponibilidade
