@@ -48,6 +48,8 @@ Para integrações e agentes de IA, envie sempre datas concretas no formato can�
 
 Opcionalmente, a busca aceita filtros `amenities`/`comodidades`, `inventory`/`inventario`, `properties`/`propriedades`, `cities`/`cidades` e `rooms`/`quartos`. Valores de texto são resolvidos pelo catálogo da conta Stays.
 
+O filtro `amenities` é aplicado somente na Stays; o endpoint de disponibilidade do Imob não permite confirmar comodidades. Por isso, a API não usa opções do Imob para completar uma busca filtrada por comodidade. A resposta informa `cobertura_filtros.amenities`; se a Stays não encontrar opções e o Imob seria uma fonte aplicável, a instrução pede autorização para tentar outras datas, mantendo condomínio, comodidade e demais filtros. Para uma propriedade disponível somente no Imob, a busca com comodidade é interrompida com `AMENITY_FILTER_UNSUPPORTED_BY_PROVIDER`.
+
 A resposta de `/api/v1/search` inclui até três opções com `tag_sugerida`, `nome`, `condominio`, `valor_total`, `valor_diaria`, `noites`, `capacidade`, quartos, camas, banheiros, destaques/comodidades e `link_reserva`. `page` é opcional e começa em `1`; quando `mais_opcoes_disponiveis` for `true`, solicite a próxima página incrementando `page` e mantenha datas, hóspedes e filtros.
 
 Quando o Imob rejeitar a estadia por quantidade mínima de noites, a API identifica o mínimo, consulta novamente mantendo check-in e hóspedes e devolve as opções em `alternativa_estadia_minima`, com período, quantidade de noites e instrução para o agente explicar a alternativa e confirmar se o cliente aceita. Essas opções ficam separadas de `opcoes`, que continuam vinculadas ao período original solicitado.

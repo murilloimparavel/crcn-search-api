@@ -513,6 +513,7 @@ app.all('/api/v1/search', async (req, res) => {
     rooms: parseList(req.body?.rooms || req.body?.quartos || req.query.rooms || req.query.quartos).map((value) => Number(value)).filter(Number.isFinite),
     listingId: req.body?.listingId || req.body?.listing_id || req.query.listingId || req.query.listing_id
   };
+  const hasAmenityPreference = filterInput.amenities.length > 0;
 
   logSearch('search.request', { request_id: requestId, from, to, persons, max_results, page });
 
@@ -674,6 +675,19 @@ app.all('/api/v1/search', async (req, res) => {
       }
     }
 
+    if (resolvedProperty?.type === 'imob_only' && hasAmenityPreference) {
+      return res.status(422).json({
+        sucesso: false,
+        codigo: 'AMENITY_FILTER_UNSUPPORTED_BY_PROVIDER',
+        erro: 'Este empreendimento só está disponível no Imob, que não oferece filtro de comodidades nesta busca.',
+        valores: filterInput.amenities,
+        instrucao_para_o_agente: {
+          o_que_fazer: 'Explique que não é possível confirmar essa comodidade para este empreendimento e pergunte se o cliente aceita pesquisar sem esse filtro. Não remova a comodidade sem autorização.',
+          proibido: 'Não apresente opções como se a comodidade tivesse sido verificada.'
+        }
+      });
+    }
+
     if (resolvedProperty?.type === 'imob_only') {
       staysPropertyNotFound = true;
       searchFilters = {};
@@ -721,6 +735,7 @@ app.all('/api/v1/search', async (req, res) => {
         };
         let staysFailed = false;
         let listings = [];
+        const imobAmenityUnsupported = hasAmenityPreference && imobClient.configured && resolvedProperty?.type !== 'stays_only';
         const providerResults = {
           stays: {
             status: resolvedProperty?.type === 'imob_only' ? 'not_required' : staysPropertyNotFound ? 'error' : 'not_queried',
@@ -729,7 +744,8 @@ app.all('/api/v1/search', async (req, res) => {
           },
           imob: {
             status: imobClient.configured ? 'not_queried' : 'not_configured',
-            condominium_filter: resolvedProperty?.imobId || null
+            condominium_filter: resolvedProperty?.imobId || null,
+            ...(imobAmenityUnsupported ? { code: 'AMENITY_FILTER_UNSUPPORTED' } : {})
           }
         };
         if (!staysPropertyNotFound) {
@@ -789,7 +805,7 @@ app.all('/api/v1/search', async (req, res) => {
           orderedListings.length < offsetWithinWindow + limitResults ||
           (!filterInput.properties.length && orderedListings.length < 3);
 
-        if (imobClient.configured && needsImobSupplement) {
+        if (imobClient.configured && needsImobSupplement && !hasAmenityPreference) {
           providerResults.imob.status = 'queried';
           try {
             imobRecords = imobQueryTarget
@@ -973,7 +989,7 @@ app.all('/api/v1/search', async (req, res) => {
           }
         } else {
           providerResults.imob.status = imobClient.configured
-            ? (imobPropertyRequired ? 'not_queried' : 'not_required')
+            ? (imobAmenityUnsupported ? 'not_queried' : (imobPropertyRequired ? 'not_queried' : 'not_required'))
             : 'not_configured';
           logSearch('provider.skipped', {
             request_id: requestId,
@@ -1081,8 +1097,15 @@ app.all('/api/v1/search', async (req, res) => {
               mensagem: 'A busca não foi concluída em todos os provedores vinculados a este empreendimento. Os resultados disponíveis são parciais; a ausência de opções não pode ser tratada como indisponibilidade confirmada.'
             }
           : null;
+        const partialAmenityCoverage = hasAmenityPreference && providerResults.stays.status === 'no_availability' &&
+          providerResults.imob.code === 'AMENITY_FILTER_UNSUPPORTED';
         const noResultsInstruction = allOptions.length === 0
-          ? providerSearchComplete
+          ? partialAmenityCoverage
+            ? {
+                o_que_fazer: `A busca aplicou a comodidade somente na Stays. O Imob não permite aplicar esse filtro e não foi consultado. NÃO afirme indisponibilidade geral. Pergunte se o cliente autoriza tentar outras datas; se autorizar, altere somente as datas e mantenha ${filterInput.properties.length ? 'o mesmo condomínio, ' : ''}a mesma comodidade e os demais filtros.`,
+                sugestao_de_fala: 'Não encontrei opções com essa comodidade nas datas escolhidas na fonte que permite verificar esse filtro. O outro sistema não consegue confirmar comodidades. Você teria flexibilidade para tentar outras datas mantendo essa preferência?'
+              }
+            : providerSearchComplete
             ? {
                 o_que_fazer: 'NÃO invente opções fictícias nem links de exemplo. Os provedores requeridos foram consultados e não retornaram disponibilidade para esse período exato. Explique isso com cordialidade e sugira datas alternativas.',
                 sugestao_de_fala: 'Não encontrei apartamentos disponíveis para essas datas exatas. Você teria flexibilidade para viajar em outro período ou fim de semana?'
@@ -1109,6 +1132,15 @@ app.all('/api/v1/search', async (req, res) => {
           },
           filtros_aplicados: searchFilters,
           provedores_consultados: providerResults,
+          ...(hasAmenityPreference ? {
+            cobertura_filtros: {
+              amenities: {
+                valores_solicitados: filterInput.amenities,
+                provedores_com_filtro_aplicado: ['stays'],
+                provedores_sem_filtro_aplicado: imobAmenityUnsupported ? ['imob'] : []
+              }
+            }
+          } : {}),
           ...(noResultsInstruction ? { instrucao_para_o_agente: noResultsInstruction } : {}),
           ...((fallbackWarning || capacityFallbackWarning) ? {
             avisos: [fallbackWarning, capacityFallbackWarning].filter(Boolean)

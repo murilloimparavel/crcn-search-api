@@ -36,7 +36,7 @@ global.fetch = async (input, options = {}) => {
   upstreamCalls.push({ url, options });
   if (url.hostname === 'stays.test' && url.pathname.endsWith('/booking/searchfilter')) {
     return Response.json({
-      amenities: [], inventory: [], properties: [
+      amenities: [{ _id: 'pool-open', _mstitle: { pt_BR: 'Piscina ao ar livre (Compartilhada)' } }], inventory: [], properties: [
         { _id: 'STAY-P1', _mstitle: { pt_BR: 'Hotel Stays' } },
         { _id: '6a3499da086cdffd520549e8', id: 'LH23J', _mstitle: { pt_BR: 'CRCN - Piazza diRoma' } }
       ], cities: [], regions: [], rooms: [], guests: []
@@ -254,6 +254,59 @@ async function main() {
   assert.equal(piazzaNoAvailabilityPayload.provedores_consultados.stays.status, 'no_availability');
   assert.equal(piazzaNoAvailabilityPayload.provedores_consultados.imob.status, 'no_availability');
   assert.match(piazzaNoAvailabilityPayload.instrucao_para_o_agente.o_que_fazer, /provedores requeridos foram consultados/);
+
+  // Comodidades são verificadas na Stays; nunca completar opções pelo Imob sem aplicar o mesmo filtro.
+  upstreamCalls.length = 0;
+  const amenitySearchResponse = await nativeFetch(`${baseUrl}/api/v1/search`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from: '2026-12-04', to: '2026-12-06', persons: 2, amenities: 'Piscina ao ar livre (Compartilhada)' })
+  });
+  const amenitySearch = await amenitySearchResponse.json();
+  assert.equal(amenitySearchResponse.status, 200);
+  assert.deepEqual(amenitySearch.filtros_aplicados.amenities, ['pool-open']);
+  assert.equal(amenitySearch.provedores_consultados.imob.status, 'not_queried');
+  assert.equal(amenitySearch.provedores_consultados.imob.code, 'AMENITY_FILTER_UNSUPPORTED');
+  assert.deepEqual(amenitySearch.cobertura_filtros.amenities.provedores_com_filtro_aplicado, ['stays']);
+  assert.deepEqual(amenitySearch.cobertura_filtros.amenities.provedores_sem_filtro_aplicado, ['imob']);
+  assert.equal(upstreamCalls.some((call) => call.url.pathname.endsWith('/listOrcamento')), false);
+
+  // Propriedade exclusiva do Imob não pode aparentar que a comodidade foi conferida.
+  upstreamCalls.length = 0;
+  const imobOnlyAmenityResponse = await nativeFetch(`${baseUrl}/api/v1/search`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      from: '2026-12-04', to: '2026-12-06', persons: 2,
+      property: 'crcn:lagoa-quente-flat-service', amenities: 'Piscina ao ar livre (Compartilhada)'
+    })
+  });
+  const imobOnlyAmenity = await imobOnlyAmenityResponse.json();
+  assert.equal(imobOnlyAmenityResponse.status, 422);
+  assert.equal(imobOnlyAmenity.codigo, 'AMENITY_FILTER_UNSUPPORTED_BY_PROVIDER');
+  assert.equal(upstreamCalls.some((call) => call.url.pathname.endsWith('/booking/search-listings') || call.url.pathname.endsWith('/listOrcamento')), false);
+
+  // Sem resultado na Stays e sem filtro de comodidade no Imob, pedir outras datas preservando todos os filtros.
+  upstreamCalls.length = 0;
+  const partialAmenityResponse = await nativeFetch(`${baseUrl}/api/v1/search`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      from: '2026-12-24', to: '2026-12-27', persons: 2,
+      property: 'crcn:piazza-diroma', amenities: 'Piscina ao ar livre (Compartilhada)'
+    })
+  });
+  const partialAmenity = await partialAmenityResponse.json();
+  const amenityStaysCall = upstreamCalls.find((call) => call.url.hostname === 'stays.test' && call.url.pathname.endsWith('/booking/search-listings'));
+  assert.equal(partialAmenityResponse.status, 200);
+  assert.equal(partialAmenity.opcoes.length, 0);
+  assert.equal(partialAmenity.provedores_consultados.stays.status, 'no_availability');
+  assert.equal(partialAmenity.provedores_consultados.imob.status, 'not_queried');
+  assert.equal(partialAmenity.provedores_consultados.imob.code, 'AMENITY_FILTER_UNSUPPORTED');
+  assert.match(partialAmenity.instrucao_para_o_agente.o_que_fazer, /NÃO afirme indisponibilidade geral/);
+  assert.match(partialAmenity.instrucao_para_o_agente.o_que_fazer, /outras datas/);
+  assert.match(partialAmenity.instrucao_para_o_agente.o_que_fazer, /mesmo condomínio, a mesma comodidade e os demais filtros/);
+  assert.ok(amenityStaysCall);
+  assert.deepEqual(JSON.parse(amenityStaysCall.options.body).properties, ['6a3499da086cdffd520549e8']);
+  assert.deepEqual(JSON.parse(amenityStaysCall.options.body).amenities, ['pool-open']);
+  assert.equal(upstreamCalls.some((call) => call.url.pathname.endsWith('/listOrcamento')), false);
 
   // Propriedade desconhecida nunca deve remover silenciosamente o filtro nem pesquisar o inventário geral.
   upstreamCalls.length = 0;
