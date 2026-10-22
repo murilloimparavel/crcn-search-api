@@ -89,12 +89,23 @@ async function testReadOnlyReservationEndpoints() {
   ]);
 }
 
+async function testPropertyDetailTimeoutOverride() {
+  const client = new StaysClient({
+    baseUrl: 'https://stays.test/external/v1', clientId: 'id', clientSecret: 'secret', timeoutMs: 1000,
+    fetchImpl: async (_url, { signal }) => new Promise((_resolve, reject) => {
+      signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })), { once: true });
+    })
+  });
+  await assert.rejects(client.getProperty('property-1', { timeoutMs: 20 }), (error) => error.code === 'STAYS_TIMEOUT');
+}
+
 async function main() {
   await testOfficialSearchUsesBasicAuthAndJson();
   await testFilterCatalogAndResolution();
   await testUnknownFilterReturnsCappedCatalogOptionsWithoutFuzzyMatch();
   await testUnauthorizedErrorDoesNotLeakCredentials();
   await testReadOnlyReservationEndpoints();
+  await testPropertyDetailTimeoutOverride();
   console.log('stays-client: all tests passed');
 }
 

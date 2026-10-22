@@ -119,6 +119,13 @@ global.fetch = async (input, options = {}) => {
     });
   }
   if (url.hostname === 'stays.test' && url.pathname.includes('/content/properties/')) {
+    const id = decodeURIComponent(url.pathname.split('/').pop());
+    if (id === '6a32a879024c3c27b14a7c05') {
+      return Response.json({ _mstitle: { pt_BR: 'Aquarius Residence' }, _msdesc: { pt_BR: 'Condomínio com piscina e bar molhado.' } });
+    }
+    if (id === '6a35437cdb55e2219851aae2') {
+      return Response.json({ _mstitle: { pt_BR: 'Sol das Caldas' }, _msdesc: { pt_BR: 'Não tem bar molhado.' } });
+    }
     return Response.json({ _mstitle: { pt_BR: 'Condomínio Teste' } });
   }
   if (url.hostname === 'imob.test' && url.pathname.endsWith('/listOrcamento')) {
@@ -249,6 +256,17 @@ async function main() {
   assert.equal(goldenProperty.nome, 'GOLDEN DOLPHIN SUPREME');
   assert.equal(goldenProperty.provedor, 'imob');
   assert.ok(goldenProperty.descricao.length > 0);
+
+  const featureResponse = await nativeFetch(`${baseUrl}/api/v1/properties?q=bar%20molhado`);
+  const featurePayload = await featureResponse.json();
+  assert.equal(featureResponse.status, 200);
+  assert.equal(featurePayload.modo, 'caracteristica');
+  assert.ok(featurePayload.propriedades.some((property) => property.property_key === 'crcn:aquarius-residence'));
+  assert.ok(!featurePayload.propriedades.some((property) => property.property_key === 'crcn:sol-das-caldas'));
+  assert.ok(featurePayload.propriedades.every((property) => property.evidencia && property.property_key));
+
+  const unsupportedFeatureResponse = await nativeFetch(`${baseUrl}/api/v1/properties?feature=bar%20gourmet`);
+  assert.equal(unsupportedFeatureResponse.status, 422);
 
   // Teste 4: Busca de disponibilidade filtrada por condomínio do Imob (sem quebrar na Stays)
   upstreamCalls.length = 0;

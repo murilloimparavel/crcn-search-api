@@ -50,7 +50,7 @@ class StaysClient {
     return Boolean(this.clientId && this.clientSecret);
   }
 
-  async request(path, { method = 'GET', query, body } = {}) {
+  async request(path, { method = 'GET', query, body, timeoutMs = this.timeoutMs } = {}) {
     const url = new URL(`${this.baseUrl}${path}`);
     if (query) {
       for (const [key, value] of Object.entries(query)) {
@@ -58,7 +58,7 @@ class StaysClient {
       }
     }
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const response = await this.fetchImpl(url, {
         method,
@@ -176,8 +176,8 @@ class StaysClient {
     return this.request(`/content/listings/${encodeURIComponent(id)}`);
   }
 
-  async getProperty(id) {
-    return this.request(`/content/properties/${encodeURIComponent(id)}`);
+  async getProperty(id, { timeoutMs } = {}) {
+    return this.request(`/content/properties/${encodeURIComponent(id)}`, { timeoutMs });
   }
 
   async getReservation(id) {

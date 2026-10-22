@@ -2,6 +2,9 @@ const { cleanText } = require('./normalizer');
 const fs = require('node:fs');
 const path = require('node:path');
 const { internalKey, validateCatalog } = require('./property-identity');
+const { resolveFeature, evidenceForFeature } = require('./property-feature-search');
+const FEATURE_DETAIL_TIMEOUT_MS = 2_000;
+const FEATURE_DETAIL_CONCURRENCY = 8;
 
 // IDs publicados em https://reservascrcn.com.br/condominio/{id}.
 // A API Imob usa o mesmo ID no campo `condominio` de /listOrcamento.
@@ -229,6 +232,105 @@ class PropertyCatalog {
     this.imobCatalog = [...imobCatalog];
     this.identityCatalog = identityCatalog;
     this.dynamicImobDiscovered = new Map();
+    this.featureSnapshot = null;
+    this.featureSnapshotExpiresAt = 0;
+    this.featureSnapshotPromise = null;
+  }
+
+  async getFeatureSnapshot() {
+    if (this.featureSnapshot && Date.now() < this.featureSnapshotExpiresAt) return this.featureSnapshot;
+    if (this.featureSnapshotPromise) return this.featureSnapshotPromise;
+    this.featureSnapshotPromise = (async () => {
+      const records = (this.identityCatalog || loadPropertyIdentityCatalog()).properties
+        .filter((record) => record.status === 'active');
+      const descriptions = new Map();
+      const failed = [];
+      const staysRecords = records.filter((record) => record.sources?.stays?.status === 'active' && record.sources.stays.id);
+      let cursor = 0;
+      const worker = async () => {
+        while (cursor < staysRecords.length) {
+          const record = staysRecords[cursor++];
+          try {
+            const detail = await this.staysClient.getProperty(record.sources.stays.id, { timeoutMs: FEATURE_DETAIL_TIMEOUT_MS });
+            descriptions.set(record.property_key, {
+              text: cleanText(detail?._msdesc?.pt_BR || detail?._mssummary?.pt_BR || ''),
+              source: 'stays_property_description'
+            });
+          } catch {
+            failed.push(record.property_key);
+          }
+        }
+      };
+      if (this.staysClient?.configured !== false && typeof this.staysClient?.getProperty === 'function') {
+        await Promise.all(Array.from({ length: Math.min(FEATURE_DETAIL_CONCURRENCY, staysRecords.length) }, () => worker()));
+      } else {
+        failed.push(...staysRecords.map((record) => record.property_key));
+      }
+      for (const record of records) {
+        if (descriptions.get(record.property_key)?.text) continue;
+        const imob = this.allImobCondominiums.find((item) => String(item.id) === String(record.sources?.imob?.id));
+        const localText = cleanText(record.description || imob?.descricao || '');
+        if (localText && !/^Condom[ií]nio (?:listado|parceiro)\b/i.test(localText)) {
+          descriptions.set(record.property_key, { text: localText, source: 'catalog_description' });
+        }
+      }
+      const snapshot = { records, descriptions, failed };
+      this.featureSnapshot = snapshot;
+      this.featureSnapshotExpiresAt = Date.now() + 5 * 60_000;
+      return snapshot;
+    })().finally(() => { this.featureSnapshotPromise = null; });
+    return this.featureSnapshotPromise;
+  }
+
+  async searchPropertiesByFeature(input, { page = 1, nameQuery = '' } = {}) {
+    const feature = resolveFeature(input);
+    if (!feature) return { unsupported: true, supported: ['bar molhado', 'aceita pets'] };
+    const snapshot = await this.getFeatureSnapshot();
+    const results = [];
+    const notSearchable = [];
+    const verifiedMatches = ['verified_exact_name', 'verified_normalized_name', 'verified_manual'];
+    for (const record of snapshot.records) {
+      if (nameQuery && !normalizeLookupKey(record.canonical_name).includes(normalizeLookupKey(nameQuery))) continue;
+      const description = snapshot.descriptions.get(record.property_key);
+      const evidence = evidenceForFeature(description?.text, feature);
+      if (!evidence) continue;
+      const staysActive = record.sources?.stays?.status === 'active' && record.sources.stays.id != null;
+      const imobActive = record.sources?.imob?.status === 'active' && record.sources.imob.id != null;
+      if (staysActive && imobActive && !verifiedMatches.includes(record.match_status)) {
+        notSearchable.push(record.property_key);
+        continue;
+      }
+      results.push({
+        property_key: record.property_key,
+        nome: record.canonical_name,
+        provedor: staysActive
+          ? (imobActive ? 'both' : 'stays')
+          : 'imob',
+        caracteristica: feature,
+        evidencia: evidence,
+        origem_evidencia: description.source,
+        requer_confirmacao_unidade: feature === 'aceita_pets'
+      });
+    }
+    results.sort((left, right) => left.nome.localeCompare(right.nome, 'pt-BR'));
+    const offset = (page - 1) * 5;
+    const notChecked = [...new Set([
+      ...snapshot.failed,
+      ...snapshot.records.filter((record) => !snapshot.descriptions.get(record.property_key)?.text).map((record) => record.property_key)
+    ])];
+    return {
+      feature,
+      total: results.length,
+      properties: results.slice(offset, offset + 5),
+      nextPage: offset + 5 < results.length ? page + 1 : null,
+      coverage: {
+        properties_in_catalog: snapshot.records.length,
+        descriptions_available: snapshot.descriptions.size,
+        complete: notChecked.length === 0,
+        properties_not_checked: notChecked,
+        properties_not_searchable: notSearchable
+      }
+    };
   }
 
   // Registra dinamicamente condomínios encontrados em buscas do Imob
