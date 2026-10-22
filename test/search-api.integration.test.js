@@ -1,5 +1,24 @@
 const assert = require('node:assert/strict');
 const net = require('node:net');
+const { StaysClient } = require('../src/stays-client');
+
+const originalResolveSearchFilters = StaysClient.prototype.resolveSearchFilters;
+StaysClient.prototype.resolveSearchFilters = async function resolveSearchFiltersWithTestRetry(input) {
+  if (process.env.TEST_HYBRID_PROPERTY_THEN_AMENITY_ERROR === '1') {
+    this.__testFilterResolutionCount = (this.__testFilterResolutionCount || 0) + 1;
+    const error = new Error('Test catalog filter is missing.');
+    Object.assign(error, this.__testFilterResolutionCount === 1
+      ? { code: 'STAYS_FILTER_NOT_FOUND', filterGroup: 'properties', unknownValue: 'piazza' }
+      : {
+          code: 'STAYS_FILTER_NOT_FOUND', filterGroup: 'amenities', unknownValue: 'pet',
+          availableOptions: [{ id: 'pool-open', nome: 'Piscina ao ar livre (Compartilhada)' }],
+          availableOptionCount: 1,
+          optionsTruncated: false
+        });
+    throw error;
+  }
+  return originalResolveSearchFilters.call(this, input);
+};
 
 const nativeFetch = global.fetch;
 const upstreamCalls = [];
@@ -38,13 +57,29 @@ global.fetch = async (input, options = {}) => {
     return Response.json({
       amenities: [{ _id: 'pool-open', _mstitle: { pt_BR: 'Piscina ao ar livre (Compartilhada)' } }], inventory: [], properties: [
         { _id: 'STAY-P1', _mstitle: { pt_BR: 'Hotel Stays' } },
-        { _id: '6a3499da086cdffd520549e8', id: 'LH23J', _mstitle: { pt_BR: 'CRCN - Piazza diRoma' } }
+        { _id: '6a3499da086cdffd520549e8', id: 'LH23J', _mstitle: { pt_BR: 'CRCN - Piazza diRoma' } },
+        { _id: '6a32c14c834bbbf9de8b2ba9', id: 'LG06J', _mstitle: { pt_BR: 'CRCN - Casa com Piscina' } }
       ], cities: [], regions: [], rooms: [], guests: []
     });
   }
   if (url.hostname === 'stays.test' && url.pathname.endsWith('/booking/search-listings')) {
     const body = JSON.parse(options.body || '{}');
-    if ((body.properties || []).includes('6a3499da086cdffd520549e8')) return Response.json([]);
+    if ((body.properties || []).includes('6a3499da086cdffd520549e8')) {
+      if (process.env.TEST_PIAZZA_STAYS_ALT_ERROR === '1' && body.from !== '2026-12-24') {
+        return Response.json({ erro: 'temporary failure' }, { status: 503 });
+      }
+      if (process.env.TEST_PIAZZA_STAYS_ALT_AVAILABLE === '1' && body.from === '2026-12-25') {
+        return Response.json([staysListing('STAY-ALT-1', 'STAY-P1', 750)]);
+      }
+      return Response.json([]);
+    }
+    if ((body.properties || []).includes('6a32c14c834bbbf9de8b2ba9')) {
+      if (process.env.TEST_STAYS_ONLY_ALT_AVAILABLE === '1' && body.from === '2026-12-25') {
+        return Response.json([staysListing('STAY-ONLY-ALT-1', 'P-1', 650)]);
+      }
+      return Response.json([]);
+    }
+    if (process.env.TEST_GENERAL_STAYS_EMPTY === '1' && body.from === '2026-12-24') return Response.json([]);
     const count = body.guests === 5 ? 3 : 1;
     return Response.json(Array.from({ length: count }, (_, i) => staysListing(`STAY-${body.guests}-${i}`, `P-${i}`, 500 + i * 100)));
   }
@@ -88,6 +123,12 @@ global.fetch = async (input, options = {}) => {
   }
   if (url.hostname === 'imob.test' && url.pathname.endsWith('/listOrcamento')) {
     const body = JSON.parse(options.body || '{}');
+    if (!body.condominio && process.env.TEST_GENERAL_IMOB_ERROR === '1') {
+      return Response.json({ erro: 'temporary failure' }, { status: 503 });
+    }
+    if (String(body.condominio) === '84' && process.env.TEST_PIAZZA_IMOB_ERROR === '1') {
+      return Response.json({ erro: 'temporary failure' }, { status: 503 });
+    }
     if (body.entrada === '2026-11-01' && body.saida === '2026-11-02' && String(body.condominio) !== '84') {
       return Response.json({ erro: 'Min de 2 Noites' });
     }
@@ -133,6 +174,7 @@ async function main() {
   process.env.IMOB_BASE_URL = 'https://imob.test/crcn';
   process.env.IMOB_PUBLIC_BASE_URL = 'https://reservascrcn.test';
   process.env.IMOB_AUTHORIZATION = 'Basic test-token';
+  process.env.SEARCH_ALTERNATIVE_DATE_WINDOW_DAYS = '2';
   require('../src/index');
 
   const baseUrl = `http://127.0.0.1:${port}`;
@@ -253,7 +295,149 @@ async function main() {
   assert.equal(piazzaNoAvailabilityPayload.opcoes.length, 0);
   assert.equal(piazzaNoAvailabilityPayload.provedores_consultados.stays.status, 'no_availability');
   assert.equal(piazzaNoAvailabilityPayload.provedores_consultados.imob.status, 'no_availability');
-  assert.match(piazzaNoAvailabilityPayload.instrucao_para_o_agente.o_que_fazer, /provedores requeridos foram consultados/);
+  assert.equal(piazzaNoAvailabilityPayload.alternativa_datas.estado, 'nao_encontradas_no_limite');
+  assert.equal(piazzaNoAvailabilityPayload.alternativa_datas.datas_consultadas.length, 4);
+  assert.match(piazzaNoAvailabilityPayload.instrucao_para_o_agente.o_que_fazer, /dentro da janela de 2 dias/);
+
+  // Datas próximas só são consultadas depois de ambos os provedores confirmarem indisponibilidade.
+  process.env.TEST_PIAZZA_STAYS_ALT_AVAILABLE = '1';
+  process.env.TEST_PIAZZA_IMOB_EMPTY = '1';
+  upstreamCalls.length = 0;
+  const nearestDatesResponse = await nativeFetch(`${baseUrl}/api/v1/search`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from: '2026-12-24', to: '2026-12-27', persons: 6, property: 'crcn:piazza-diroma', max_results: 3 })
+  });
+  const nearestDatesPayload = await nearestDatesResponse.json();
+  const alternateStaysCalls = upstreamCalls.filter((call) => call.url.hostname === 'stays.test' && call.url.pathname.endsWith('/booking/search-listings'));
+  const alternateBodies = alternateStaysCalls.map((call) => JSON.parse(call.options.body));
+  assert.equal(nearestDatesResponse.status, 200);
+  assert.equal(nearestDatesPayload.opcoes.length, 0, 'alternative dates stay separate from the originally requested dates');
+  assert.equal(nearestDatesPayload.alternativa_datas.estado, 'encontradas');
+  assert.deepEqual(nearestDatesPayload.alternativa_datas.periodos[0].periodo, {
+    check_in: '2026-12-25', check_out: '2026-12-28', noites: 3, hospedes: 6
+  });
+  assert.equal(nearestDatesPayload.alternativa_datas.periodos[0].opcoes[0].id, 'STAY-ALT-1');
+  assert.equal(alternateBodies.length, 3, 'one original Stays search plus two nearest-date probes');
+  assert.ok(alternateBodies.slice(1).every((body) => body.guests === 6 && body.properties?.[0] === '6a3499da086cdffd520549e8'));
+  assert.equal(upstreamCalls.filter((call) => call.url.hostname === 'imob.test' && call.url.pathname.endsWith('/listOrcamento')).length, 1,
+    'Imob is consulted for the original period only');
+  assert.match(nearestDatesPayload.instrucao_para_o_agente.sugestao_de_fala, /25\/12\/2026 a 28\/12\/2026/);
+  delete process.env.TEST_PIAZZA_STAYS_ALT_AVAILABLE;
+  delete process.env.TEST_PIAZZA_IMOB_EMPTY;
+
+  // Stays-only properties use the applicable Stays result and never call Imob.
+  process.env.TEST_STAYS_ONLY_ALT_AVAILABLE = '1';
+  upstreamCalls.length = 0;
+  const staysOnlyResponse = await nativeFetch(`${baseUrl}/api/v1/search`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      from: '2026-12-24', to: '2026-12-27', persons: 2,
+      property: 'crcn:casa-com-piscina', amenities: 'Piscina ao ar livre (Compartilhada)'
+    })
+  });
+  const staysOnly = await staysOnlyResponse.json();
+  const staysOnlyCalls = upstreamCalls
+    .filter((call) => call.url.hostname === 'stays.test' && call.url.pathname.endsWith('/booking/search-listings'))
+    .map((call) => JSON.parse(call.options.body));
+  assert.equal(staysOnlyResponse.status, 200);
+  assert.equal(staysOnly.provedores_consultados.stays.status, 'no_availability');
+  assert.equal(staysOnly.provedores_consultados.imob.status, 'not_required');
+  assert.equal(staysOnly.alternativa_datas.estado, 'encontradas');
+  assert.equal(staysOnly.alternativa_datas.periodos[0].opcoes[0].id, 'STAY-ONLY-ALT-1');
+  assert.equal(staysOnlyCalls.length, 3, 'one original-period and two nearest-date Stays probes');
+  assert.ok(staysOnlyCalls.every((body) => body.amenities?.[0] === 'pool-open' && body.properties?.[0] === '6a32c14c834bbbf9de8b2ba9'),
+    'nearby Stays probes preserve the applicable amenity and property filters');
+  assert.equal(upstreamCalls.some((call) => call.url.hostname === 'imob.test' && call.url.pathname.endsWith('/listOrcamento')), false);
+  delete process.env.TEST_STAYS_ONLY_ALT_AVAILABLE;
+
+  // A general search needs explicit no_availability from both providers when Imob is configured.
+  process.env.TEST_GENERAL_STAYS_EMPTY = '1';
+  process.env.TEST_GENERAL_IMOB_ERROR = '1';
+  upstreamCalls.length = 0;
+  const generalSearchErrorResponse = await nativeFetch(`${baseUrl}/api/v1/search`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from: '2026-12-24', to: '2026-12-27', persons: 2 })
+  });
+  const generalSearchError = await generalSearchErrorResponse.json();
+  assert.equal(generalSearchError.provedores_consultados.stays.status, 'no_availability');
+  assert.equal(generalSearchError.provedores_consultados.imob.status, 'error');
+  assert.equal(generalSearchError.alternativa_datas, undefined);
+  assert.equal(upstreamCalls.filter((call) => call.url.hostname === 'stays.test' && call.url.pathname.endsWith('/booking/search-listings')).length, 1);
+  delete process.env.TEST_GENERAL_STAYS_EMPTY;
+  delete process.env.TEST_GENERAL_IMOB_ERROR;
+
+  // Imob-only properties never search alternate dates in Stays.
+  upstreamCalls.length = 0;
+  const imobOnlyNoAvailabilityResponse = await nativeFetch(`${baseUrl}/api/v1/search`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from: '2026-12-24', to: '2026-12-27', persons: 2, property: 'crcn:lagoa-quente-flat-service' })
+  });
+  const imobOnlyNoAvailability = await imobOnlyNoAvailabilityResponse.json();
+  assert.equal(imobOnlyNoAvailability.provedores_consultados.stays.status, 'not_required');
+  assert.equal(imobOnlyNoAvailability.provedores_consultados.imob.status, 'no_availability');
+  assert.equal(imobOnlyNoAvailability.alternativa_datas, undefined);
+  assert.equal(upstreamCalls.some((call) => call.url.hostname === 'stays.test' && call.url.pathname.endsWith('/booking/search-listings')), false);
+
+  // An error at the nearest distance makes the alternative search incomplete; do not probe farther dates.
+  process.env.TEST_PIAZZA_STAYS_ALT_ERROR = '1';
+  process.env.TEST_PIAZZA_IMOB_EMPTY = '1';
+  upstreamCalls.length = 0;
+  const nearbyFailureResponse = await nativeFetch(`${baseUrl}/api/v1/search`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from: '2026-12-24', to: '2026-12-27', persons: 6, property: 'crcn:piazza-diroma', max_results: 3 })
+  });
+  const nearbyFailure = await nearbyFailureResponse.json();
+  const failedProbeDates = nearbyFailure.alternativa_datas.datas_consultadas;
+  const staysCallsAfterNearbyFailure = upstreamCalls
+    .filter((call) => call.url.hostname === 'stays.test' && call.url.pathname.endsWith('/booking/search-listings'));
+  assert.equal(nearbyFailureResponse.status, 200);
+  assert.equal(nearbyFailure.alternativa_datas.estado, 'busca_incompleta');
+  assert.equal(failedProbeDates.length, 2, 'only the nearest distance is queried after a Stays error');
+  assert.ok(failedProbeDates.every((period) => period.status === 'error'));
+  assert.equal(staysCallsAfterNearbyFailure.length, 3, 'one original-period call plus two nearest-date probes');
+  assert.doesNotMatch(nearbyFailure.instrucao_para_o_agente.o_que_fazer, /não há disponibilidade/i);
+  assert.match(nearbyFailure.instrucao_para_o_agente.o_que_fazer, /busca de datas próximas na Stays ficou incompleta/);
+  delete process.env.TEST_PIAZZA_STAYS_ALT_ERROR;
+  delete process.env.TEST_PIAZZA_IMOB_EMPTY;
+
+  // Erro do Imob é inconclusivo e nunca dispara busca de datas próximas.
+  process.env.TEST_PIAZZA_IMOB_ERROR = '1';
+  upstreamCalls.length = 0;
+  const incompleteCoverageResponse = await nativeFetch(`${baseUrl}/api/v1/search`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from: '2026-12-24', to: '2026-12-27', persons: 6, property: 'crcn:piazza-diroma', max_results: 3 })
+  });
+  const incompleteCoverage = await incompleteCoverageResponse.json();
+  assert.equal(incompleteCoverage.provedores_consultados.imob.status, 'error');
+  assert.equal(incompleteCoverage.alternativa_datas, undefined);
+  assert.match(incompleteCoverage.instrucao_para_o_agente.o_que_fazer, /Não foi confirmada indisponibilidade nos dois provedores/);
+  assert.doesNotMatch(incompleteCoverage.instrucao_para_o_agente.o_que_fazer, /não retornaram disponibilidade/);
+  assert.equal(upstreamCalls.filter((call) => call.url.hostname === 'stays.test' && call.url.pathname.endsWith('/booking/search-listings')).length, 1);
+  delete process.env.TEST_PIAZZA_IMOB_ERROR;
+
+  // The date window excludes any candidate check-in before the current BRT date.
+  const clockResponse = await nativeFetch(`${baseUrl}/api/v1/date/now`);
+  const todayIso = (await clockResponse.json()).data_hoje;
+  const shiftIso = (iso, days) => {
+    const value = new Date(`${iso}T00:00:00.000Z`);
+    value.setUTCDate(value.getUTCDate() + days);
+    return value.toISOString().slice(0, 10);
+  };
+  process.env.TEST_PIAZZA_IMOB_EMPTY = '1';
+  upstreamCalls.length = 0;
+  const boundaryResponse = await nativeFetch(`${baseUrl}/api/v1/search`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from: shiftIso(todayIso, 1), to: shiftIso(todayIso, 4), persons: 6, property: 'crcn:piazza-diroma', max_results: 3 })
+  });
+  const boundaryPayload = await boundaryResponse.json();
+  const boundaryStaysDates = upstreamCalls
+    .filter((call) => call.url.hostname === 'stays.test' && call.url.pathname.endsWith('/booking/search-listings'))
+    .map((call) => JSON.parse(call.options.body).from);
+  assert.equal(boundaryResponse.status, 200);
+  assert.ok(boundaryStaysDates.every((date) => date >= todayIso), 'never query Stays for a check-in before today in BRT');
+  assert.ok(boundaryPayload.alternativa_datas.datas_consultadas.every((period) => period.check_in >= todayIso));
+  assert.ok(boundaryPayload.alternativa_datas.datas_consultadas.length < 4, 'the past-side probe is skipped at the date boundary');
+  delete process.env.TEST_PIAZZA_IMOB_EMPTY;
 
   // Comodidades são verificadas na Stays; nunca completar opções pelo Imob sem aplicar o mesmo filtro.
   upstreamCalls.length = 0;
@@ -269,6 +453,57 @@ async function main() {
   assert.deepEqual(amenitySearch.cobertura_filtros.amenities.provedores_com_filtro_aplicado, ['stays']);
   assert.deepEqual(amenitySearch.cobertura_filtros.amenities.provedores_sem_filtro_aplicado, ['imob']);
   assert.equal(upstreamCalls.some((call) => call.url.pathname.endsWith('/listOrcamento')), false);
+
+  // Unknown amenity labels return exact catalogue options and never broaden the search.
+  for (const unknownAmenity of ['pet', 'Pet friendly']) {
+    upstreamCalls.length = 0;
+    const unknownAmenityResponse = await nativeFetch(`${baseUrl}/api/v1/search`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: '2026-12-04', to: '2026-12-06', persons: 2,
+        property: 'crcn:piazza-diroma', amenities: unknownAmenity
+      })
+    });
+    const unknownAmenityPayload = await unknownAmenityResponse.json();
+    assert.equal(unknownAmenityResponse.status, 422);
+    assert.equal(unknownAmenityPayload.codigo, 'STAYS_FILTER_NOT_FOUND');
+    assert.equal(unknownAmenityPayload.filtro.categoria, 'amenities');
+    assert.equal(unknownAmenityPayload.filtro.valor_recebido, unknownAmenity);
+    assert.deepEqual(unknownAmenityPayload.filtro.opcoes_validas, [
+      { id: 'pool-open', nome: 'Piscina ao ar livre (Compartilhada)' }
+    ]);
+    assert.equal(unknownAmenityPayload.filtro.valor_exato_reconhecido, false);
+    assert.equal(unknownAmenityPayload.filtro.equivalencia_semantica_confirmada, false);
+    assert.equal(unknownAmenityPayload.filtro.catalogo_completo_endpoint, '/api/v1/searchfilters');
+    assert.match(unknownAmenityPayload.instrucao_para_o_agente.o_que_fazer, /não remova esse filtro/);
+    assert.match(unknownAmenityPayload.instrucao_para_o_agente.proibido, /correspondência aproximada silenciosa/);
+    assert.equal(upstreamCalls.some((call) => call.url.pathname.endsWith('/booking/search-listings') || call.url.pathname.endsWith('/listOrcamento')), false,
+      'an unknown amenity must not become an unfiltered search');
+  }
+
+  // A hybrid property's missing Stays property filter may trigger a retry; if that retry
+  // then finds an invalid amenity, it must return the same structured filter guidance.
+  process.env.TEST_HYBRID_PROPERTY_THEN_AMENITY_ERROR = '1';
+  upstreamCalls.length = 0;
+  const hybridRetryFilterErrorResponse = await nativeFetch(`${baseUrl}/api/v1/search`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      from: '2026-12-04', to: '2026-12-06', persons: 2,
+      property: 'crcn:piazza-diroma', amenities: 'pet'
+    })
+  });
+  const hybridRetryFilterError = await hybridRetryFilterErrorResponse.json();
+  assert.equal(hybridRetryFilterErrorResponse.status, 422);
+  assert.equal(hybridRetryFilterError.codigo, 'STAYS_FILTER_NOT_FOUND');
+  assert.equal(hybridRetryFilterError.filtro.categoria, 'amenities');
+  assert.equal(hybridRetryFilterError.filtro.valor_recebido, 'pet');
+  assert.deepEqual(hybridRetryFilterError.filtro.opcoes_validas, [
+    { id: 'pool-open', nome: 'Piscina ao ar livre (Compartilhada)' }
+  ]);
+  assert.equal(hybridRetryFilterError.filtro.valor_exato_reconhecido, false);
+  assert.match(hybridRetryFilterError.instrucao_para_o_agente.o_que_fazer, /não há uma equivalência semântica confirmada/);
+  assert.equal(upstreamCalls.some((call) => call.url.pathname.endsWith('/booking/search-listings') || call.url.pathname.endsWith('/listOrcamento')), false);
+  delete process.env.TEST_HYBRID_PROPERTY_THEN_AMENITY_ERROR;
 
   // Propriedade exclusiva do Imob não pode aparentar que a comodidade foi conferida.
   upstreamCalls.length = 0;
@@ -300,13 +535,34 @@ async function main() {
   assert.equal(partialAmenity.provedores_consultados.stays.status, 'no_availability');
   assert.equal(partialAmenity.provedores_consultados.imob.status, 'not_queried');
   assert.equal(partialAmenity.provedores_consultados.imob.code, 'AMENITY_FILTER_UNSUPPORTED');
+  assert.equal(partialAmenity.alternativa_datas, undefined);
   assert.match(partialAmenity.instrucao_para_o_agente.o_que_fazer, /NÃO afirme indisponibilidade geral/);
   assert.match(partialAmenity.instrucao_para_o_agente.o_que_fazer, /outras datas/);
   assert.match(partialAmenity.instrucao_para_o_agente.o_que_fazer, /mesmo condomínio, a mesma comodidade e os demais filtros/);
   assert.ok(amenityStaysCall);
+  assert.equal(upstreamCalls.filter((call) => call.url.hostname === 'stays.test' && call.url.pathname.endsWith('/booking/search-listings')).length, 1,
+    'unsupported Imob amenity coverage does not trigger automatic nearby-date probes');
   assert.deepEqual(JSON.parse(amenityStaysCall.options.body).properties, ['6a3499da086cdffd520549e8']);
   assert.deepEqual(JSON.parse(amenityStaysCall.options.body).amenities, ['pool-open']);
   assert.equal(upstreamCalls.some((call) => call.url.pathname.endsWith('/listOrcamento')), false);
+
+  // After an explicit client-approved date change, the next search must keep the amenity filter.
+  upstreamCalls.length = 0;
+  const approvedAmenityRetryResponse = await nativeFetch(`${baseUrl}/api/v1/search`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      from: '2026-12-25', to: '2026-12-28', persons: 2,
+      property: 'crcn:piazza-diroma', amenities: 'Piscina ao ar livre (Compartilhada)'
+    })
+  });
+  const approvedAmenityRetry = await approvedAmenityRetryResponse.json();
+  const approvedAmenityStaysCall = upstreamCalls.find((call) => call.url.hostname === 'stays.test' && call.url.pathname.endsWith('/booking/search-listings'));
+  assert.equal(approvedAmenityRetryResponse.status, 200);
+  assert.ok(approvedAmenityStaysCall);
+  assert.deepEqual(JSON.parse(approvedAmenityStaysCall.options.body).amenities, ['pool-open']);
+  assert.deepEqual(JSON.parse(approvedAmenityStaysCall.options.body).properties, ['6a3499da086cdffd520549e8']);
+  assert.equal(approvedAmenityRetry.alternativa_datas, undefined,
+    'amenity-limited coverage still cannot trigger unconfirmed automatic alternatives');
 
   // Propriedade desconhecida nunca deve remover silenciosamente o filtro nem pesquisar o inventário geral.
   upstreamCalls.length = 0;

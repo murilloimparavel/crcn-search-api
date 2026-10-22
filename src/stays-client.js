@@ -12,11 +12,12 @@ function logStaysProviderEvent(event, fields = {}) {
 }
 
 class StaysError extends Error {
-  constructor(message, { code = 'STAYS_REQUEST_FAILED', status } = {}) {
+  constructor(message, { code = 'STAYS_REQUEST_FAILED', status, ...details } = {}) {
     super(message);
     this.name = 'StaysError';
     this.code = code;
     this.status = status;
+    Object.assign(this, details);
   }
 }
 
@@ -210,7 +211,18 @@ class StaysClient {
           return ids.includes(raw) || labels.some((label) => String(label).toLocaleLowerCase('pt-BR') === raw.toLocaleLowerCase('pt-BR'));
         });
         if (!found) {
-          throw new StaysError(`Filtro ${groupName} não encontrado no catálogo Stays.`, { code: 'STAYS_FILTER_NOT_FOUND' });
+          const availableOptions = (entries || []).map((entry) => ({
+            id: entry?._id || entry?.id || entry?.val || null,
+            nome: entry?._mstitle?.pt_BR || entry?._mstitle?.en_US || entry?.internalName || entry?.val || entry?.id || entry?._id || null
+          })).filter((entry) => entry.id && entry.nome);
+          throw new StaysError(`Filtro ${groupName} não encontrado no catálogo Stays.`, {
+            code: 'STAYS_FILTER_NOT_FOUND',
+            filterGroup: groupName,
+            unknownValue: raw,
+            availableOptions: availableOptions.slice(0, 25),
+            availableOptionCount: availableOptions.length,
+            optionsTruncated: availableOptions.length > 25
+          });
         }
         return found._id || found.id || found.val;
       });
