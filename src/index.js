@@ -237,15 +237,38 @@ function publicError(res, error) {
   const status = error.code === 'STAYS_NOT_CONFIGURED' ? 503
     : error.code === 'STAYS_FILTER_NOT_FOUND' ? 400
       : 502;
-  return res.status(status).json({
+  const payload = {
     sucesso: false,
     codigo: error.code || 'STAYS_REQUEST_FAILED',
     erro: status === 503
       ? 'A integração com a Stays ainda não está configurada.'
       : status === 400
-        ? error.message
+        ? error.filterGroup === 'amenities'
+          ? 'Não reconheci uma das preferências de comodidade. Escolha uma opção do catálogo ou explique de outra forma o que procura.'
+          : error.message
         : 'Não foi possível consultar a API oficial de reservas neste momento.'
-  });
+  };
+  if (error.code === 'STAYS_FILTER_NOT_FOUND') {
+    payload.filtro = error.filterGroup || null;
+    payload.valor_recebido = error.rejectedValues?.[0] || null;
+    if (error.filterGroup === 'amenities') {
+      payload.opcoes_validas = error.availableOptions || [];
+      const petPreference = error.rejectedValues?.some((value) => /\b(pets?|animais|animal|cachorr[oa]|gatos?)\b/i.test(String(value).replace(/_/g, ' ')));
+      if (petPreference) {
+        payload.preferencia = 'aceita_pet';
+        payload.verificacao_pet = 'nao_confirmada';
+      }
+      payload.instrucao_para_o_agente = {
+        o_que_fazer: 'A busca foi interrompida porque a preferência não corresponde ao catálogo. Explique com cordialidade que não reconheceu o termo, ofereça as opções_validas e pergunte qual delas melhor representa o que o cliente deseja. Não refaça a busca removendo ou substituindo a preferência sem confirmação.',
+        usar_valor: 'Envie o nome exato ou o id de uma opção de opcoes_validas no parâmetro amenities.'
+      };
+      if (petPreference) {
+        payload.erro = 'A aceitação de pets não está disponível no catálogo de comodidades consultado; é necessário verificar a política do imóvel.';
+        payload.instrucao_para_o_agente.o_que_fazer = 'Preserve a exigência de pet. Explique que a política de animais precisa ser confirmada para o imóvel e encaminhe para verificação humana. Não apresente opções como pet friendly, não substitua por outra comodidade e não repita a busca sem esse requisito para afirmar que atende ao pedido.';
+      }
+    }
+  }
+  return res.status(status).json(payload);
 }
 
 function reservationLookupAuthorized(req) {
@@ -302,11 +325,20 @@ app.get('/api/v1/reservations/:partnerCode', async (req, res) => {
       logSearch('reservation.lookup.invalid_response', { request_id: requestId, duration_ms: Date.now() - startedAt });
       return res.status(502).json({ sucesso: false, codigo: 'STAYS_INVALID_RESERVATION_DETAILS', erro: 'A Stays retornou detalhes de reserva em formato inesperado.' });
     }
-    if (String(reservation.partnerCode || '').trim().toLocaleLowerCase('pt-BR') !== partnerCode.toLocaleLowerCase('pt-BR')) {
+    // The Stays detail endpoint accepts public reservation ID, internal ID or
+    // OTA partnerCode. Validate the exact supplied identifier against all three.
+    const returnedCodes = [reservation.partnerCode, reservation.id, reservation._id]
+      .filter((code) => typeof code === 'string' && code.trim())
+      .map((code) => code.trim().toLocaleLowerCase('pt-BR'));
+    if (!returnedCodes.includes(partnerCode.toLocaleLowerCase('pt-BR'))) {
       logSearch('reservation.lookup.identifier_mismatch', { request_id: requestId, duration_ms: Date.now() - startedAt });
-      return res.status(404).json({
+      // Not-found is a successful business lookup, not a transport failure.
+      // HTTP tools otherwise replace this structured answer with a fallback.
+      return res.status(200).json({
         sucesso: true,
         encontrada: false,
+        codigo: 'RESERVATION_NOT_FOUND',
+        request_id: requestId,
         mensagem: 'Não encontrei uma reserva com esse código. Confira se o código foi digitado corretamente.'
       });
     }
@@ -371,9 +403,11 @@ app.get('/api/v1/reservations/:partnerCode', async (req, res) => {
   } catch (error) {
     if (error.status === 404) {
       logSearch('reservation.lookup.not_found', { request_id: requestId, duration_ms: Date.now() - startedAt });
-      return res.status(404).json({
+      return res.status(200).json({
         sucesso: true,
         encontrada: false,
+        codigo: 'RESERVATION_NOT_FOUND',
+        request_id: requestId,
         mensagem: 'Não encontrei uma reserva com esse código. Confira se o código foi digitado corretamente.'
       });
     }

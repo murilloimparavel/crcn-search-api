@@ -62,10 +62,23 @@ Quando o Imob rejeitar a estadia por quantidade mínima de noites, a API identif
 
 ### Consulta de reserva pelo código da plataforma
 
+O parâmetro histórico `partnerCode` também aceita o código público ou ID interno
+da reserva, conforme o contrato Stays. A API só aceita o resultado quando um
+desses identificadores devolvidos corresponder exatamente ao informado.
+Uma consulta válida sem correspondência retorna HTTP 200 com `sucesso=true`,
+`encontrada=false`, `codigo=RESERVATION_NOT_FOUND` e `request_id`; não é falha
+técnica nem autorização para voucher. Erros de autenticação e falhas da origem
+continuam usando HTTP 4xx/5xx. Nunca substitua esses erros por pagamento aprovado.
+
+`QA_EXPORT_DIR=/diretorio/privado npm test` pode exportar somente as respostas
+sintéticas dos testes de integração para avaliações posteriores do modelo.
+Incluem pagamento aprovado, pendente, parcial e reserva cancelada com crédito pago.
+Nenhuma reserva ou pagamento real é criado por esses testes.
+
 - `GET /api/v1/reservations/{partnerCode}` busca a reserva pelo código informado na plataforma e devolve uma estrutura amigável para IA com status da reserva, canal, datas/horários, quantidade de hóspedes, nomes do apartamento/condomínio, descrição do imóvel e situação de pagamento.
 - A rota consulta a reserva, os pagamentos e o imóvel no Stays. Não devolve nome/telefone do titular, documentos, endereço, dados de cartão, notas internas, comissão ou IDs internos.
 - Configure `RESERVATION_LOOKUP_TOKEN` no ambiente da API. Envie o mesmo segredo no cabeçalho `x-reservation-lookup-token`; a rota responde `503` se o token não estiver configurado e `401` se estiver ausente/incorreto. Configure esse cabeçalho na custom tool do EvoCRM.
-- O status de pagamento separa total da reserva, total pago informado nas estatísticas e créditos concluídos/pendentes. A rota só sinaliza `pago` quando créditos concluídos cobrem o total e não há créditos pendentes; divergências permanecem explícitas e não liberam o fluxo do voucher.
+- O status de pagamento separa total da reserva, total pago informado nas estatísticas e créditos concluídos/pendentes. A regra geral só sinaliza `pago` quando créditos concluídos cobrem o total e não há créditos pendentes. Pela regra operacional aprovada da CRCN, Airbnb, Decolar e Expedia com crédito “A confirmar” acima de zero também permitem prosseguir: `regra_aplicada=a_confirmar_por_canal`. Isso não confirma repasse bancário nem altera o valor de créditos concluídos. Essa exceção nunca se aplica ao Booking. Estado booked e dados completos da hospedagem continuam obrigatórios para o voucher.
 - `reserva.status.pode_seguir_para_voucher` só é `true` quando a reserva está `booked`, o pagamento é comprovadamente `pago` e os dados necessários da hospedagem estão completos. Para demais estados, divergências ou dados incompletos, siga `orientacao_para_ia` e encaminhe para conferência humana/financeira.
 - Códigos não encontrados respondem HTTP `404` com `encontrada: false`; códigos ambíguos respondem HTTP `409` sem revelar registros.
 

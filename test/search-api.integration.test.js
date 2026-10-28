@@ -50,6 +50,24 @@ global.fetch = async (input, options = {}) => {
   }
   if (url.hostname === 'stays.test' && url.pathname.includes('/booking/reservations/')) {
     const reservationId = decodeURIComponent(url.pathname.split('/').pop());
+    const segments = url.pathname.split('/');
+    const qaCode = decodeURIComponent(segments[segments.indexOf('reservations') + 1]).replace(/-internal$/, '');
+    if (qaCode === 'QA-UNAVAILABLE') return Response.json({ message: 'Unavailable' }, { status: 503 });
+    const qaStatus = { 'QA-PAID': 'completed', 'QA-PUBLIC': 'completed', 'QA-MISMATCH': 'completed', 'QA-PENDING': 'pending', 'QA-PARTIAL': 'completed', 'QA-CANCELED': 'completed' };
+    if (Object.hasOwn(qaStatus, qaCode)) {
+      if (url.pathname.endsWith('/payments')) return Response.json([
+        { type: 'credit', status: qaStatus[qaCode], _f_val: qaCode === 'QA-PARTIAL' ? 150 : 470 }
+      ]);
+      return Response.json({
+        _id: qaCode === 'QA-MISMATCH' ? 'other-internal' : `${qaCode}-internal`,
+        id: qaCode === 'QA-MISMATCH' ? 'other-public' : qaCode,
+        partnerCode: qaCode === 'QA-PUBLIC' || qaCode === 'QA-MISMATCH' ? 'other-partner' : qaCode,
+        _idlisting: 'QA-LISTING',
+        type: qaCode === 'QA-CANCELED' ? 'canceled' : 'booked',
+        partner: { name: 'Reserva direta QA' }, checkInDate: '2026-11-06', checkOutDate: '2026-11-08',
+        guests: 3, guestsDetails: { adults: 3 }, price: { currency: 'BRL', _f_total: 470 }
+      });
+    }
     if (url.pathname.endsWith('/payments')) return Response.json([]);
     if (reservationId === '5237057474') {
       return Response.json({
@@ -71,6 +89,11 @@ global.fetch = async (input, options = {}) => {
   }
   if (url.hostname === 'stays.test' && url.pathname.includes('/content/listings/')) {
     const id = decodeURIComponent(url.pathname.split('/').pop());
+    if (id === 'QA-LISTING') return Response.json({
+      id: 'LG03J', _mstitle: { pt_BR: 'Aquarius Flat Apto D 704' },
+      _msdesc: { pt_BR: 'Apartamento de teste controlado, com cozinha e varanda.' },
+      _idproperty: 'QA-PROPERTY', _i_maxGuests: 5
+    });
     const index = Number(id.slice(-1)) || 0;
     return Response.json({
       id,
@@ -84,6 +107,7 @@ global.fetch = async (input, options = {}) => {
     });
   }
   if (url.hostname === 'stays.test' && url.pathname.includes('/content/properties/')) {
+    if (url.pathname.endsWith('/QA-PROPERTY')) return Response.json({ _mstitle: { pt_BR: 'CRCN - Aquarius Flat' } });
     return Response.json({ _mstitle: { pt_BR: 'Condomínio Teste' } });
   }
   if (url.hostname === 'imob.test' && url.pathname.endsWith('/listOrcamento')) {
@@ -137,6 +161,20 @@ async function main() {
 
   const baseUrl = `http://127.0.0.1:${port}`;
   await waitForHealth(`${baseUrl}/health`);
+  for (const term of ['pet', 'Pets', 'Pet friendly', 'pet_friendly']) {
+    upstreamCalls.length = 0;
+    const response = await nativeFetch(`${baseUrl}/api/v1/search`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from: '2026-12-24', to: '2026-12-26', persons: 5, amenities: term })
+    });
+    const result = await response.json();
+    assert.equal(response.status, 400);
+    assert.equal(result.verificacao_pet, 'nao_confirmada');
+    assert.equal(result.valor_recebido, term);
+    assert.match(result.instrucao_para_o_agente.o_que_fazer, /Não apresente opções como pet friendly/);
+    assert.equal(upstreamCalls.some((c) => c.url.pathname.endsWith('/booking/search-listings')), false);
+  }
+
 
   const unauthenticatedLookup = await nativeFetch(`${baseUrl}/api/v1/reservations/5237057474`);
   assert.equal(unauthenticatedLookup.status, 401);
@@ -161,9 +199,44 @@ async function main() {
     headers: { 'x-reservation-lookup-token': 'test-reservation-token' }
   });
   const missingPayload = await missingLookup.json();
-  assert.equal(missingLookup.status, 404);
+  assert.equal(missingLookup.status, 200);
   assert.equal(missingPayload.sucesso, true);
   assert.equal(missingPayload.encontrada, false);
+  assert.equal(missingPayload.codigo, 'RESERVATION_NOT_FOUND');
+  assert.ok(missingPayload.request_id);
+
+  for (const [code, payment, eligible] of [
+    ['QA-PAID', 'pago', true], ['QA-PUBLIC', 'pago', true], ['QA-PENDING', 'pendente', false],
+    ['QA-PARTIAL', 'parcial', false], ['QA-CANCELED', 'pago', false]
+  ]) {
+    const lookup = await nativeFetch(`${baseUrl}/api/v1/reservations/${code}`, {
+      headers: { 'x-reservation-lookup-token': 'test-reservation-token' }
+    });
+    const body = await lookup.json();
+    assert.equal(lookup.status, 200);
+    assert.equal(body.encontrada, true);
+    assert.equal(body.reserva.pagamento.status, payment);
+    assert.equal(body.reserva.status.pode_seguir_para_voucher, eligible);
+    // Only synthetic fixtures may be exported for downstream model tests.
+    if (process.env.QA_EXPORT_DIR) {
+      const fs = require('node:fs');
+      const path = require('node:path');
+      fs.mkdirSync(process.env.QA_EXPORT_DIR, { recursive: true, mode: 0o700 });
+      fs.writeFileSync(path.join(process.env.QA_EXPORT_DIR, `${code}.json`), JSON.stringify(body), { mode: 0o600 });
+    }
+  }
+  const mismatchLookup = await nativeFetch(`${baseUrl}/api/v1/reservations/QA-MISMATCH`, {
+    headers: { 'x-reservation-lookup-token': 'test-reservation-token' }
+  });
+  assert.equal(mismatchLookup.status, 200);
+  assert.equal((await mismatchLookup.json()).encontrada, false);
+  const unavailableLookup = await nativeFetch(`${baseUrl}/api/v1/reservations/QA-UNAVAILABLE`, {
+    headers: { 'x-reservation-lookup-token': 'test-reservation-token' }
+  });
+  assert.equal(unavailableLookup.status, 502);
+  const unavailablePayload = await unavailableLookup.json();
+  assert.equal(unavailablePayload.sucesso, false);
+  assert.equal(unavailablePayload.reserva, undefined);
 
   const response = await nativeFetch(`${baseUrl}/api/v1/search`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
