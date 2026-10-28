@@ -18,7 +18,17 @@ function count(value) {
 }
 
 function sumAmounts(items) {
-  return Math.round(items.reduce((total, item) => total + (Number(item?._f_val) || 0), 0) * 100) / 100;
+  const total = items.reduce((sum, item) => {
+    const value = Number(item?._f_val);
+    return sum + (Number.isFinite(value) ? value : 0);
+  }, 0);
+  return Number.isFinite(total) ? Math.round(total * 100) / 100 : 0;
+}
+
+function confirmsPendingPaymentByChannel(channelName) {
+  const channel = String(channelName || '').toLocaleLowerCase('pt-BR');
+  if (channel.includes('booking')) return false;
+  return ['airbnb', 'decolar', 'expedia'].some((name) => channel.includes(name));
 }
 
 function normalizeReservationStatus(type, channelName) {
@@ -46,7 +56,9 @@ function normalizePayment(reservation, payments) {
       valor_total: amount(reservation?.price?._f_total ?? reservation?.price?._f_expected),
       valor_pago_informado_stays: amount(reservation?.stats?._f_totalPaid),
       valor_pago_confirmado: null,
+      valor_a_confirmar: null,
       valor_pendente: null,
+      regra_aplicada: null,
       quantidade_lancamentos: null,
       lancamentos_por_status: [],
       descricao: 'A consulta de lançamentos de pagamento não ficou disponível. Não conclua que o pagamento está completo.'
@@ -61,10 +73,17 @@ function normalizePayment(reservation, payments) {
   const pendingByPayments = sumAmounts(pending);
   const paidReportedByStays = amount(reservation?.stats?._f_totalPaid);
   const creditStatuses = [...new Set(credits.map((item) => item?.status).filter(Boolean))];
+  const channel = reservation?.partner?.name || '';
+  const channelConfirmsPayment = confirmsPendingPaymentByChannel(channel) && pendingByPayments > 0;
   let status = 'indisponivel';
   let description = 'Os dados disponíveis não permitem determinar se o pagamento foi concluído.';
+  let paymentRule = null;
 
-  if (total !== null && pending.length && paidReportedByStays !== null && paidReportedByStays >= total) {
+  if (channelConfirmsPayment) {
+    status = 'pago';
+    paymentRule = 'a_confirmar_por_canal';
+    description = `Há R$ ${pendingByPayments.toFixed(2)} em lançamentos “A confirmar” para o canal ${channel}. Pela regra operacional da CRCN, considere o pagamento aprovado para prosseguir com o voucher. Isso não confirma o repasse bancário.`;
+  } else if (total !== null && pending.length && paidReportedByStays !== null && paidReportedByStays >= total) {
     status = 'divergente';
     description = 'O total pago informado nas estatísticas diverge dos lançamentos de crédito, que ainda aparecem pendentes. Encaminhe para conferência financeira.';
   } else if (total !== null && pending.length) {
@@ -90,12 +109,14 @@ function normalizePayment(reservation, payments) {
 
   return {
     status,
-    nome_status: labels[status],
+    nome_status: channelConfirmsPayment ? 'Pagamento aprovado pela regra do canal' : labels[status],
     moeda: reservation?.price?.currency || 'BRL',
     valor_total: total,
     valor_pago_informado_stays: paidReportedByStays,
     valor_pago_confirmado: paidByPayments,
+    valor_a_confirmar: pendingByPayments,
     valor_pendente: pendingByPayments,
+    regra_aplicada: paymentRule,
     quantidade_lancamentos: payments.length,
     lancamentos_por_status: [...new Set(payments.map((item) => item?.status).filter(Boolean))]
       .sort()

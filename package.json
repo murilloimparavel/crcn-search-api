@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
-    "test": "node test/date-calculator.test.js && node test/stays-client.test.js && node test/normalizer.test.js && node test/imob-client.test.js && node test/imob-normalizer.test.js && node test/property-catalog.test.js && node test/search-api.integration.test.js && node test/commercial-assistant.test.js && node test/property-identity.test.js",
+    "test": "node test/date-calculator.test.js && node test/stays-client.test.js && node test/normalizer.test.js && node test/imob-client.test.js && node test/imob-normalizer.test.js && node test/property-catalog.test.js && node test/search-api.integration.test.js && node test/commercial-assistant.test.js && node test/property-identity.test.js && node test/reservation-payment-policy.test.js",
     "test:stays": "node test/stays-client.test.js",
     "catalog:sync": "node scripts/sync-property-catalog.js"
   },
