@@ -137,6 +137,20 @@ async function main() {
 
   const baseUrl = `http://127.0.0.1:${port}`;
   await waitForHealth(`${baseUrl}/health`);
+  for (const term of ['pet', 'Pets', 'Pet friendly', 'pet_friendly']) {
+    upstreamCalls.length = 0;
+    const response = await nativeFetch(`${baseUrl}/api/v1/search`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from: '2026-12-24', to: '2026-12-26', persons: 5, amenities: term })
+    });
+    const result = await response.json();
+    assert.equal(response.status, 400);
+    assert.equal(result.verificacao_pet, 'nao_confirmada');
+    assert.equal(result.valor_recebido, term);
+    assert.match(result.instrucao_para_o_agente.o_que_fazer, /Não apresente opções como pet friendly/);
+    assert.equal(upstreamCalls.some((c) => c.url.pathname.endsWith('/booking/search-listings')), false);
+  }
+
 
   const unauthenticatedLookup = await nativeFetch(`${baseUrl}/api/v1/reservations/5237057474`);
   assert.equal(unauthenticatedLookup.status, 401);

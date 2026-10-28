@@ -12,11 +12,14 @@ function logStaysProviderEvent(event, fields = {}) {
 }
 
 class StaysError extends Error {
-  constructor(message, { code = 'STAYS_REQUEST_FAILED', status } = {}) {
+  constructor(message, { code = 'STAYS_REQUEST_FAILED', status, filterGroup, rejectedValues, availableOptions } = {}) {
     super(message);
     this.name = 'StaysError';
     this.code = code;
     this.status = status;
+    this.filterGroup = filterGroup;
+    this.rejectedValues = rejectedValues;
+    this.availableOptions = availableOptions;
   }
 }
 
@@ -210,7 +213,18 @@ class StaysClient {
           return ids.includes(raw) || labels.some((label) => String(label).toLocaleLowerCase('pt-BR') === raw.toLocaleLowerCase('pt-BR'));
         });
         if (!found) {
-          throw new StaysError(`Filtro ${groupName} não encontrado no catálogo Stays.`, { code: 'STAYS_FILTER_NOT_FOUND' });
+          const availableOptions = groupName === 'amenities'
+            ? (entries || []).map((entry) => ({
+                id: entry?._id || entry?.id || entry?.val || null,
+                nome: String(entry?._mstitle?.pt_BR || entry?.internalName || entry?.val || entry?.id || '').trim()
+              })).filter((option) => option.nome)
+            : undefined;
+          throw new StaysError(`Filtro ${groupName} não encontrado no catálogo Stays.`, {
+            code: 'STAYS_FILTER_NOT_FOUND',
+            filterGroup: groupName,
+            rejectedValues: [raw],
+            availableOptions
+          });
         }
         return found._id || found.id || found.val;
       });
