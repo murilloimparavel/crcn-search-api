@@ -325,11 +325,20 @@ app.get('/api/v1/reservations/:partnerCode', async (req, res) => {
       logSearch('reservation.lookup.invalid_response', { request_id: requestId, duration_ms: Date.now() - startedAt });
       return res.status(502).json({ sucesso: false, codigo: 'STAYS_INVALID_RESERVATION_DETAILS', erro: 'A Stays retornou detalhes de reserva em formato inesperado.' });
     }
-    if (String(reservation.partnerCode || '').trim().toLocaleLowerCase('pt-BR') !== partnerCode.toLocaleLowerCase('pt-BR')) {
+    // The Stays detail endpoint accepts public reservation ID, internal ID or
+    // OTA partnerCode. Validate the exact supplied identifier against all three.
+    const returnedCodes = [reservation.partnerCode, reservation.id, reservation._id]
+      .filter((code) => typeof code === 'string' && code.trim())
+      .map((code) => code.trim().toLocaleLowerCase('pt-BR'));
+    if (!returnedCodes.includes(partnerCode.toLocaleLowerCase('pt-BR'))) {
       logSearch('reservation.lookup.identifier_mismatch', { request_id: requestId, duration_ms: Date.now() - startedAt });
-      return res.status(404).json({
+      // Not-found is a successful business lookup, not a transport failure.
+      // HTTP tools otherwise replace this structured answer with a fallback.
+      return res.status(200).json({
         sucesso: true,
         encontrada: false,
+        codigo: 'RESERVATION_NOT_FOUND',
+        request_id: requestId,
         mensagem: 'Não encontrei uma reserva com esse código. Confira se o código foi digitado corretamente.'
       });
     }
@@ -394,9 +403,11 @@ app.get('/api/v1/reservations/:partnerCode', async (req, res) => {
   } catch (error) {
     if (error.status === 404) {
       logSearch('reservation.lookup.not_found', { request_id: requestId, duration_ms: Date.now() - startedAt });
-      return res.status(404).json({
+      return res.status(200).json({
         sucesso: true,
         encontrada: false,
+        codigo: 'RESERVATION_NOT_FOUND',
+        request_id: requestId,
         mensagem: 'Não encontrei uma reserva com esse código. Confira se o código foi digitado corretamente.'
       });
     }

@@ -62,6 +62,19 @@ Quando o Imob rejeitar a estadia por quantidade mínima de noites, a API identif
 
 ### Consulta de reserva pelo código da plataforma
 
+O parâmetro histórico `partnerCode` também aceita o código público ou ID interno
+da reserva, conforme o contrato Stays. A API só aceita o resultado quando um
+desses identificadores devolvidos corresponder exatamente ao informado.
+Uma consulta válida sem correspondência retorna HTTP 200 com `sucesso=true`,
+`encontrada=false`, `codigo=RESERVATION_NOT_FOUND` e `request_id`; não é falha
+técnica nem autorização para voucher. Erros de autenticação e falhas da origem
+continuam usando HTTP 4xx/5xx. Nunca substitua esses erros por pagamento aprovado.
+
+`QA_EXPORT_DIR=/diretorio/privado npm test` pode exportar somente as respostas
+sintéticas dos testes de integração para avaliações posteriores do modelo.
+Incluem pagamento aprovado, pendente, parcial e reserva cancelada com crédito pago.
+Nenhuma reserva ou pagamento real é criado por esses testes.
+
 - `GET /api/v1/reservations/{partnerCode}` busca a reserva pelo código informado na plataforma e devolve uma estrutura amigável para IA com status da reserva, canal, datas/horários, quantidade de hóspedes, nomes do apartamento/condomínio, descrição do imóvel e situação de pagamento.
 - A rota consulta a reserva, os pagamentos e o imóvel no Stays. Não devolve nome/telefone do titular, documentos, endereço, dados de cartão, notas internas, comissão ou IDs internos.
 - Configure `RESERVATION_LOOKUP_TOKEN` no ambiente da API. Envie o mesmo segredo no cabeçalho `x-reservation-lookup-token`; a rota responde `503` se o token não estiver configurado e `401` se estiver ausente/incorreto. Configure esse cabeçalho na custom tool do EvoCRM.
