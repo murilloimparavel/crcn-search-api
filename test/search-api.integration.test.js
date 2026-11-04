@@ -1,6 +1,14 @@
 const assert = require('node:assert/strict');
 const net = require('node:net');
 
+// The quoted stay fixtures are relative to October 2026. Pin only the
+// application's date-service clock, not timers/network timeouts, so this suite
+// exercises availability instead of expiring when the real calendar advances.
+const dateCalculator = require('../src/date-calculator');
+const fixtureClock = dateCalculator.getNowBRT(new Date('2026-10-01T12:00:00Z'));
+dateCalculator.getNowBRT = () => fixtureClock;
+dateCalculator.todayInSaoPaulo = () => fixtureClock.iso;
+
 const nativeFetch = global.fetch;
 const upstreamCalls = [];
 

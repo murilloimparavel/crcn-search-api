@@ -1,5 +1,9 @@
 const assert = require('node:assert/strict');
 const express = require('express');
+// Keep October's past-date rejection and November's availability fixtures
+// deterministic without changing application behavior or mocking timers.
+const dateCalculator = require('../src/date-calculator');
+dateCalculator.todayInSaoPaulo = () => '2026-10-20';
 const { createCommercialAssistantRouter } = require('../src/commercial-assistant');
 
 async function main() {
