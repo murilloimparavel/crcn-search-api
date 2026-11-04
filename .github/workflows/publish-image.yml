@@ -75,7 +75,7 @@ jobs:
 
   deploy:
     name: Deploy Search API to Coolify
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.PRODUCTION_DEPLOY_ENABLED == 'true'
     needs: publish
     runs-on: ubuntu-latest
     timeout-minutes: 15
